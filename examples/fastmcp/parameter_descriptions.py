@@ -4,10 +4,10 @@ FastMCP Example showing parameter descriptions
 
 from pydantic import Field
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import TMCP
 
 # Create server
-mcp = FastMCP("Parameter Descriptions Server")
+mcp = TMCP("Parameter Descriptions Server")
 
 
 @mcp.tool()

@@ -4,7 +4,7 @@ import pytest
 from pydantic import AnyUrl
 
 from mcp import types
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import TMCP
 from mcp.server.lowlevel import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.shared.memory import (
@@ -16,7 +16,7 @@ pytestmark = pytest.mark.anyio
 
 async def test_fastmcp_resource_mime_type():
     """Test that mime_type parameter is respected for resources."""
-    mcp = FastMCP("test")
+    mcp = TMCP("test")
 
     # Create a small test image as bytes
     image_bytes = b"fake_image_data"

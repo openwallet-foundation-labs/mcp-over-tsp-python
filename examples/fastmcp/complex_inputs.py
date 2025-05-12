@@ -8,9 +8,9 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import TMCP
 
-mcp = FastMCP("Shrimp Tank")
+mcp = TMCP("Shrimp Tank")
 
 
 class ShrimpTank(BaseModel):

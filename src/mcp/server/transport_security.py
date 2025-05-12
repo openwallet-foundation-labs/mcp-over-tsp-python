@@ -92,8 +92,10 @@ class TransportSecurityMiddleware:
             logger.warning("Missing Content-Type header in POST request")
             return False
 
-        # Content-Type must start with application/json
-        if not content_type.lower().startswith("application/json"):
+        # Content-Type must start with application/tsp
+        if not (
+            content_type.lower().startswith("application/tsp") or content_type.lower().startswith("application/json")
+        ):
             logger.warning(f"Invalid Content-Type header: {content_type}")
             return False
 

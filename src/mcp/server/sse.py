@@ -37,11 +37,12 @@ an empty Response() after the SSE connection ends to fix this.
 See SseServerTransport class documentation for more details.
 """
 
+import base64
+import json
 import logging
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote
-from uuid import UUID, uuid4
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -51,6 +52,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+import mcp.shared.tmcp as tmcp
 import mcp.types as types
 from mcp.server.transport_security import (
     TransportSecurityMiddleware,
@@ -74,10 +76,12 @@ class SseServerTransport:
     """
 
     _endpoint: str
-    _read_stream_writers: dict[UUID, MemoryObjectSendStream[SessionMessage | Exception]]
+    _read_stream_writers: dict[str, MemoryObjectSendStream[SessionMessage | Exception]]
     _security: TransportSecurityMiddleware
 
-    def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
+    def __init__(
+        self, name: str, endpoint: str, security_settings: TransportSecuritySettings | None = None, **tmcp_settings: Any
+    ) -> None:
         """
         Creates a new SSE server transport, which will direct the client to POST
         messages to the relative or absolute URL given.
@@ -92,6 +96,8 @@ class SseServerTransport:
         self._read_stream_writers = {}
         self._security = TransportSecurityMiddleware(security_settings)
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
+
+        self.tmcp = tmcp.TmcpIdentityManager(alias=f"{name}TmcpSseServer", **tmcp_settings)
 
     @asynccontextmanager
     async def connect_sse(self, scope: Scope, receive: Receive, send: Send):
@@ -116,9 +122,15 @@ class SseServerTransport:
         read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-        session_id = uuid4()
-        self._read_stream_writers[session_id] = read_stream_writer
-        logger.debug(f"Created new session with ID: {session_id}")
+        request = Request(scope, receive)
+        user_did = request.query_params.get("did")
+        if user_did is None:
+            logger.warning("Received request without user did")
+            raise Exception("did is required")
+        tmcp_connection = self.tmcp.get_connection(user_did)
+
+        logger.debug(f"Created new session with ID: {user_did}")
+        self._read_stream_writers[user_did] = read_stream_writer
 
         # Determine the full path for the message endpoint to be sent to the client.
         # scope['root_path'] is the prefix where the current Starlette app
@@ -133,23 +145,28 @@ class SseServerTransport:
         full_message_path_for_client = root_path.rstrip("/") + self._endpoint
 
         # This is the URI (path + query) the client will use to POST messages.
-        client_post_uri_data = f"{quote(full_message_path_for_client)}?session_id={session_id.hex}"
+        client_post_uri_data = quote(full_message_path_for_client)
 
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, Any]](0)
+
+        async def sse_send(event: str, data: Any):
+            json_message = json.dumps({"event": event, "data": data})
+
+            # Seal TSP message
+            tsp_message = tmcp_connection.seal_message(json_message)
+
+            await sse_stream_writer.send({"event": "message", "data": tsp_message})
 
         async def sse_writer():
             logger.debug("Starting SSE writer")
             async with sse_stream_writer, write_stream_reader:
-                await sse_stream_writer.send({"event": "endpoint", "data": client_post_uri_data})
+                await sse_send("endpoint", client_post_uri_data)
                 logger.debug(f"Sent endpoint event: {client_post_uri_data}")
 
                 async for session_message in write_stream_reader:
-                    logger.debug(f"Sending message via SSE: {session_message}")
-                    await sse_stream_writer.send(
-                        {
-                            "event": "message",
-                            "data": session_message.message.model_dump_json(by_alias=True, exclude_none=True),
-                        }
+                    await sse_send(
+                        "message",
+                        session_message.message.model_dump_json(by_alias=True, exclude_none=True),
                     )
 
         async with anyio.create_task_group() as tg:
@@ -165,7 +182,7 @@ class SseServerTransport:
                 )
                 await read_stream_writer.aclose()
                 await write_stream_reader.aclose()
-                logging.debug(f"Client session disconnected {session_id}")
+                logging.debug(f"Client session disconnected {user_did}")
 
             logger.debug("Starting SSE response task")
             tg.start_soon(response_wrapper, scope, receive, send)
@@ -182,31 +199,24 @@ class SseServerTransport:
         if error_response:
             return await error_response(scope, receive, send)
 
-        session_id_param = request.query_params.get("session_id")
-        if session_id_param is None:
-            logger.warning("Received request without session_id")
-            response = Response("session_id is required", status_code=400)
+        # Open TSP message (only works for known sender DIDs)
+        body = await request.body()
+        (sender, receiver) = self.tmcp.wallet.get_sender_receiver(base64.urlsafe_b64decode(body))
+        if receiver != self.tmcp.did:
+            logger.warning(f"Received message intended for: {receiver}")
+            response = Response("Incorrect receiver", status_code=400)
             return await response(scope, receive, send)
 
-        try:
-            session_id = UUID(hex=session_id_param)
-            logger.debug(f"Parsed session ID: {session_id}")
-        except ValueError:
-            logger.warning(f"Received invalid session ID: {session_id_param}")
-            response = Response("Invalid session ID", status_code=400)
-            return await response(scope, receive, send)
+        json_text = self.tmcp.get_connection(sender).open_message(body.decode())
 
-        writer = self._read_stream_writers.get(session_id)
+        writer = self._read_stream_writers.get(sender)
         if not writer:
-            logger.warning(f"Could not find session for ID: {session_id}")
+            logger.warning(f"Could not find session for ID: {sender}")
             response = Response("Could not find session", status_code=404)
             return await response(scope, receive, send)
 
-        body = await request.body()
-        logger.debug(f"Received JSON: {body}")
-
         try:
-            message = types.JSONRPCMessage.model_validate_json(body)
+            message = types.JSONRPCMessage.model_validate_json(json_text)
             logger.debug(f"Validated client message: {message}")
         except ValidationError as err:
             logger.error(f"Failed to parse message: {err}")

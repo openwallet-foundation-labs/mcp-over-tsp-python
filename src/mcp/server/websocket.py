@@ -9,12 +9,13 @@ from starlette.websockets import WebSocket
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
+from mcp.shared.tmcp import TmcpConnection
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def websocket_server(scope: Scope, receive: Receive, send: Send):
+async def websocket_server(scope: Scope, receive: Receive, send: Send, tmcp_connection: TmcpConnection):
     """
     WebSocket server transport for MCP. This is an ASGI application, suitable to be
     used with a framework like Starlette and a server like Hypercorn.
@@ -36,8 +37,11 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
         try:
             async with read_stream_writer:
                 async for msg in websocket.iter_text():
+                    # Open TSP message
+                    json_text = tmcp_connection.open_message(msg)
+
                     try:
-                        client_message = types.JSONRPCMessage.model_validate_json(msg)
+                        client_message = types.JSONRPCMessage.model_validate_json(json_text)
                     except ValidationError as exc:
                         await read_stream_writer.send(exc)
                         continue
@@ -51,8 +55,12 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
-                    obj = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
-                    await websocket.send_text(obj)
+                    json_message = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+
+                    # Seal TSP message
+                    tsp_message = tmcp_connection.seal_message(json_message)
+
+                    await websocket.send_text(tsp_message)
         except anyio.ClosedResourceError:
             await websocket.close()
 

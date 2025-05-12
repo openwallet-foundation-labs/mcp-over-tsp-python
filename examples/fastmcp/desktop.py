@@ -6,10 +6,10 @@ A simple example that exposes the desktop directory as a resource.
 
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import TMCP
 
 # Create server
-mcp = FastMCP("Demo")
+mcp = TMCP("Demo")
 
 
 @mcp.resource("dir://desktop")

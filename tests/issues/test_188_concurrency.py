@@ -2,13 +2,15 @@ import anyio
 import pytest
 from pydantic import AnyUrl
 
-from mcp.server.fastmcp import FastMCP
-from mcp.shared.memory import create_connected_server_and_client_session as create_session
+from mcp.server.fastmcp import TMCP
+from mcp.shared.memory import (
+    create_connected_server_and_client_session as create_session,
+)
 
 
 @pytest.mark.anyio
 async def test_messages_are_executed_concurrently_tools():
-    server = FastMCP("test")
+    server = TMCP("test")
     event = anyio.Event()
     tool_started = anyio.Event()
     call_order = []
