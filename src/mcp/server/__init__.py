@@ -1,4 +1,4 @@
-from .fastmcp import FastMCP
+from .fastmcp import TMCP
 from .lowlevel import NotificationOptions, Server
 from .models import InitializationOptions
 

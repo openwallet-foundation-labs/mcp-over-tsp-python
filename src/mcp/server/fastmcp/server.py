@@ -1,4 +1,4 @@
-"""FastMCP - A more ergonomic interface for MCP servers."""
+"""TMCP - A more ergonomic interface for MCP servers."""
 
 from __future__ import annotations as _annotations
 
@@ -68,7 +68,7 @@ logger = get_logger(__name__)
 
 
 class Settings(BaseSettings, Generic[LifespanResultT]):
-    """FastMCP server settings.
+    """TMCP server settings.
 
     All settings can be configured via environment variables with the prefix FASTMCP_.
     For example, FASTMCP_DEBUG=true will set debug=True.
@@ -100,6 +100,10 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
         False  # If True, uses true stateless mode (new transport per request)
     )
 
+    tmcp_settings: Any = {
+        "transport": "http://127.0.0.1:8000/sse",
+    }
+
     # resource settings
     warn_on_duplicate_resources: bool = True
 
@@ -114,16 +118,16 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
         description="List of dependencies to install in the server environment",
     )
 
-    lifespan: (
-        Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None
-    ) = Field(None, description="Lifespan context manager")
+    lifespan: Callable[[TMCP], AbstractAsyncContextManager[LifespanResultT]] | None = (
+        Field(None, description="Lifespan context manager")
+    )
 
     auth: AuthSettings | None = None
 
 
 def lifespan_wrapper(
-    app: FastMCP,
-    lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]],
+    app: TMCP,
+    lifespan: Callable[[TMCP], AbstractAsyncContextManager[LifespanResultT]],
 ) -> Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[object]]:
     @asynccontextmanager
     async def wrap(s: MCPServer[LifespanResultT]) -> AsyncIterator[object]:
@@ -133,7 +137,7 @@ def lifespan_wrapper(
     return wrap
 
 
-class FastMCP:
+class TMCP:
     def __init__(
         self,
         name: str | None = None,
@@ -146,7 +150,7 @@ class FastMCP:
         self.settings = Settings(**settings)
 
         self._mcp_server = MCPServer(
-            name=name or "FastMCP",
+            name=name or "TMCP",
             instructions=instructions,
             lifespan=(
                 lifespan_wrapper(self, self.settings.lifespan)
@@ -667,12 +671,13 @@ class FastMCP:
         # Set up auth context and dependencies
 
         sse = SseServerTransport(
+            self._mcp_server.name,
             normalized_message_endpoint,
+            **self.settings.tmcp_settings,
         )
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):
             # Add client ID from auth context into request context if available
-
             async with sse.connect_sse(
                 scope,
                 receive,
@@ -926,13 +931,13 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
     """
 
     _request_context: RequestContext[ServerSessionT, LifespanContextT] | None
-    _fastmcp: FastMCP | None
+    _fastmcp: TMCP | None
 
     def __init__(
         self,
         *,
         request_context: RequestContext[ServerSessionT, LifespanContextT] | None = None,
-        fastmcp: FastMCP | None = None,
+        fastmcp: TMCP | None = None,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
@@ -940,8 +945,8 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         self._fastmcp = fastmcp
 
     @property
-    def fastmcp(self) -> FastMCP:
-        """Access to the FastMCP server."""
+    def fastmcp(self) -> TMCP:
+        """Access to the TMCP server."""
         if self._fastmcp is None:
             raise ValueError("Context is not available outside of a request")
         return self._fastmcp
