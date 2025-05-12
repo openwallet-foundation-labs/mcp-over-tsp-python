@@ -1,7 +1,7 @@
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import TMCP
 
 # Create an MCP server
-mcp = FastMCP("Demo")
+mcp = TMCP("Demo")
 
 
 # Add an addition tool

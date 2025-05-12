@@ -3,9 +3,9 @@ Example FastMCP server that uses Unicode characters in various places to help te
 Unicode handling in tools and inspectors.
 """
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import TMCP
 
-mcp = FastMCP()
+mcp = TMCP()
 
 
 @mcp.tool(description="🌟 A tool that uses various Unicode characters in its description: " "á é í ó ú ñ 漢字 🎉")

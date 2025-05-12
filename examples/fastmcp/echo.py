@@ -2,10 +2,10 @@
 FastMCP Echo Server
 """
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import TMCP
 
 # Create server
-mcp = FastMCP("Echo Server")
+mcp = TMCP("Echo Server")
 
 
 @mcp.tool()

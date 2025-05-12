@@ -1,0 +1,6 @@
+[submodule "server-duckduckgo"]
+	path = demo/server-duckduckgo
+	url = https://github.com/openwallet-foundation-labs/duckduckgo-mcp-server
+[submodule "demo/client-fast-agent"]
+	path = demo/client-fast-agent
+	url = https://github.com/openwallet-foundation-labs/fast-agent

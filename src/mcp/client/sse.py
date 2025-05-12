@@ -1,3 +1,5 @@
+import base64
+import json
 import logging
 from contextlib import asynccontextmanager
 from typing import Any
@@ -5,10 +7,12 @@ from urllib.parse import urljoin, urlparse
 
 import anyio
 import httpx
+import tsp_python as tsp
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from httpx_sse import aconnect_sse
+from httpx_sse import ServerSentEvent, aconnect_sse
 
+import mcp.shared.tmcp as tmcp
 import mcp.types as types
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
@@ -22,12 +26,14 @@ def remove_request_params(url: str) -> str:
 
 @asynccontextmanager
 async def sse_client(
-    url: str,
+    name: str,
+    server_did: str,
     headers: dict[str, Any] | None = None,
     timeout: float = 5,
     sse_read_timeout: float = 60 * 5,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
+    **tmcp_settings: Any,
 ):
     """
     Client transport for SSE.
@@ -51,6 +57,16 @@ async def sse_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
+    # initialize TMCP client
+    wallet = tsp.SecureStore()
+    did = tmcp.init_identity(wallet, alias=f"{name}TmcpClient", **tmcp_settings)
+    url = tmcp.resolve_server(wallet, server_did, did)
+    if not url.startswith("sse://") and not url.startswith("sses://"):
+        raise Exception(f"Server does not use SSE for transport: {url}")
+
+    url = url.replace("sse://", "http://")  # SSE actually just uses HTTP
+    url = url.replace("sses://", "https://")
+
     async with anyio.create_task_group() as tg:
         try:
             logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
@@ -70,6 +86,13 @@ async def sse_client(
                     ):
                         try:
                             async for sse in event_source.aiter_sse():
+                                # Open TSP message
+                                tsp_message = base64.urlsafe_b64decode(sse.data)
+                                json_message = wallet.open_message(tsp_message).message
+
+                                json_data = json.loads(json_message)
+                                sse = ServerSentEvent(**json_data)
+
                                 logger.debug(f"Received SSE event: {sse.event}")
                                 match sse.event:
                                     case "endpoint":
@@ -116,13 +139,19 @@ async def sse_client(
                             async with write_stream_reader:
                                 async for session_message in write_stream_reader:
                                     logger.debug(f"Sending client message: {session_message}")
-                                    response = await client.post(
-                                        endpoint_url,
-                                        json=session_message.message.model_dump(
+                                    json_message = json.dumps(
+                                        session_message.message.model_dump(
                                             by_alias=True,
                                             mode="json",
                                             exclude_none=True,
-                                        ),
+                                        )
+                                    ).encode("utf-8")
+
+                                    # Encrypt & sign message with TSP
+                                    _, tsp_message = wallet.seal_message(did, server_did, json_message)
+
+                                    response = await client.post(
+                                        endpoint_url, data=tsp_message, headers={"content-type": "application/tsp"}
                                     )
                                     response.raise_for_status()
                                     logger.debug("Client message sent successfully: " f"{response.status_code}")

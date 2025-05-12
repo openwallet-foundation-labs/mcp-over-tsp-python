@@ -1,4 +1,4 @@
-# MCP Python SDK
+# TMCP Python SDK
 
 <div align="center">
 
@@ -12,6 +12,10 @@
 [![GitHub Discussions][discussions-badge]][discussions-url]
 
 </div>
+
+This fork of the MCP Python SDK implements TSP as transport on top of MCP SSE and WebSockets for secure communication between MCP clients and MCP servers.
+
+Have a look at the [demo folder](https://github.com/openwallet-foundation-labs/mcp-over-tsp-python/tree/main/demo) if you want to try it out!
 
 <!-- omit in toc -->
 ## Table of Contents
