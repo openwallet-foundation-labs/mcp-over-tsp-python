@@ -1,4 +1,4 @@
-# MCP Python SDK
+# MCP over TSP Python SDK
 
 <div align="center">
 
@@ -12,6 +12,9 @@
 [![GitHub Discussions][discussions-badge]][discussions-url]
 
 </div>
+
+This fork of the MCP Python SDK implements TSP as transport on top of SSE and WebSockets (W.I.P.) for communication between MCP clients and MCP servers.
+
 
 <!-- omit in toc -->
 ## Table of Contents
