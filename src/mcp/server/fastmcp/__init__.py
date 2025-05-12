@@ -2,7 +2,7 @@
 
 from importlib.metadata import version
 
-from .server import Context, FastMCP
+from .server import Context, TMCP
 from .utilities.types import Image
 
 __version__ = version("mcp")

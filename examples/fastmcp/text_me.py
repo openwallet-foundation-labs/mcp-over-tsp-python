@@ -24,7 +24,7 @@ import httpx
 from pydantic import BeforeValidator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import TMCP
 
 
 class SurgeSettings(BaseSettings):
@@ -42,7 +42,7 @@ class SurgeSettings(BaseSettings):
 
 
 # Create server
-mcp = FastMCP("Text me")
+mcp = TMCP("Text me")
 surge_settings = SurgeSettings()  # type: ignore
 
 

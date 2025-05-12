@@ -16,3 +16,11 @@ def add(a: int, b: int) -> int:
 def get_greeting(name: str) -> str:
     """Get a personalized greeting"""
     return f"Hello, {name}!"
+
+
+if __name__ == "__main__":
+    import sys
+
+    # Initialize and run the server
+    transport = sys.argv[1] if len(sys.argv) >= 2 else "sse"
+    mcp.run(transport=transport)

@@ -1,14 +1,18 @@
+import base64
 import json
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import anyio
+import tsp_python as tsp
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from websockets.asyncio.client import connect as ws_connect
 from websockets.typing import Subprotocol
 
+import mcp.shared.tmcp as tmcp
 import mcp.types as types
 from mcp.shared.message import SessionMessage
 
@@ -17,7 +21,9 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def websocket_client(
-    url: str,
+    name: str,
+    server_did: str,
+    **tmcp_settings: Any,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -42,11 +48,19 @@ async def websocket_client(
     # - One for outgoing messages (write_stream, read by ws_writer)
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
+
     write_stream: MemoryObjectSendStream[SessionMessage]
     write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+
+    # initialize TMCP client
+    wallet = tsp.SecureStore()
+    did = tmcp.init_identity(wallet, alias=f"{name}TmcpClient", **tmcp_settings)
+    url = tmcp.resolve_server(wallet, server_did, did)
+    if not url.startswith("ws://") and not url.startswith("wss://"):
+        raise Exception(f"Server does not use WebSockets for transport: {url}")
 
     # Connect using websockets, requesting the "mcp" subprotocol
     async with ws_connect(url, subprotocols=[Subprotocol("mcp")]) as ws:
@@ -59,7 +73,11 @@ async def websocket_client(
             async with read_stream_writer:
                 async for raw_text in ws:
                     try:
-                        message = types.JSONRPCMessage.model_validate_json(raw_text)
+                        # Open TSP message
+                        tsp_message = base64.urlsafe_b64decode(raw_text)
+                        json_message = wallet.open_message(tsp_message).message
+
+                        message = types.JSONRPCMessage.model_validate_json(json_message)
                         session_message = SessionMessage(message)
                         await read_stream_writer.send(session_message)
                     except ValidationError as exc:
@@ -77,7 +95,12 @@ async def websocket_client(
                     msg_dict = session_message.message.model_dump(
                         by_alias=True, mode="json", exclude_none=True
                     )
-                    await ws.send(json.dumps(msg_dict))
+                    json_message = json.dumps(msg_dict).encode()
+
+                    # Encrypt & sign message with TSP
+                    _, tsp_message = wallet.seal_message(did, server_did, json_message)
+
+                    await ws.send(base64.urlsafe_b64encode(tsp_message).decode())
 
         async with anyio.create_task_group() as tg:
             # Start reader and writer tasks
