@@ -26,3 +26,8 @@ uv run client.py did:web:did.teaspoon.world:the:servers:did:here
 It should list the available MCP tools from the demo MCP server. You should be able to enter a query to prompt it to use these tools.
 
 The server will print the encoded and decoded MCP over TSP messages that it sends and receives.
+
+## Using other MCP servers
+If you want to use TMCP with other existing MCP servers, some minor modification is required. You will need to update their dependency on the MCP Python SDK to this MCP over TSP Python fork, and you will need to make sure that the server uses one of the transports that is also supported by TMCP.
+
+The `server-git` and the `server-sqlite` directories contain examples of such modified MCP servers. These two example MCP servers come from the [MCP Servers](https://github.com/modelcontextprotocol/servers) repository.
