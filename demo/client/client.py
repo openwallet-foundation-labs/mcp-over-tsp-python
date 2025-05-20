@@ -1,11 +1,13 @@
 import asyncio
 from contextlib import AsyncExitStack
+from typing import Literal
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
 import mcp
 from mcp.client.sse import sse_client
+from mcp.client.websocket import websocket_client
 
 load_dotenv()  # load environment variables from .env
 
@@ -19,11 +21,26 @@ class TMCPClient:
         self.anthropic = Anthropic()
         self.name = name
 
-    async def connect_to_server(self, server_did: str):
+    async def connect_to_server(
+        self,
+        server_did: str,
+        transport: Literal["sse", "ws"] = "sse",
+    ):
         """Connect to an MCP server"""
-        self.read, self.write = await self.exit_stack.enter_async_context(
-            sse_client(self.name, server_did)
-        )
+
+        TRANSPORTS = Literal["sse", "ws"]
+        if transport not in TRANSPORTS.__args__:  # type: ignore
+            raise ValueError(f"Unknown transport: {transport}")
+
+        match transport:
+            case "sse":
+                self.read, self.write = await self.exit_stack.enter_async_context(
+                    sse_client(self.name, server_did)
+                )
+            case "ws":
+                self.read, self.write = await self.exit_stack.enter_async_context(
+                    websocket_client(self.name, server_did)
+                )
 
         self.session = await self.exit_stack.enter_async_context(
             mcp.ClientSession(self.read, self.write)
@@ -110,7 +127,12 @@ class TMCPClient:
 
         while True:
             try:
-                query = input("\nQuery: ").strip()
+                # Use asyncio friendly version of input() such that we don't time out
+                # the websocket connection
+                # query = input("\nQuery: ").strip()
+                await asyncio.to_thread(sys.stdout.write, "\nQuery: ")
+                query = await asyncio.to_thread(sys.stdin.readline)
+                query = query.strip()
 
                 if query.lower() == "quit":
                     break
@@ -135,7 +157,7 @@ async def main():
 
     client = TMCPClient("Demo")
     try:
-        await client.connect_to_server(sys.argv[1])
+        await client.connect_to_server(sys.argv[1], transport="ws")
         await client.chat_loop()
     finally:
         await client.cleanup()

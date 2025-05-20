@@ -53,9 +53,9 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+import mcp.shared.tmcp as tmcp
 import mcp.types as types
 from mcp.shared.message import SessionMessage
-from mcp.shared.tmcp import get_or_create_identity
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +87,8 @@ class SseServerTransport:
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
         self._wallet = tsp.SecureStore()
-        self._did = get_or_create_identity(
-            self._wallet, alias=f"{name}TmcpServer", **tmcp_settings
+        self._did = tmcp.init_identity(
+            self._wallet, alias=f"{name}TmcpSseServer", **tmcp_settings
         )
 
     @asynccontextmanager
@@ -137,14 +137,17 @@ class SseServerTransport:
         ](0)
 
         async def sse_send(event: str, data: Any):
-            json_message = json.dumps({"event": event, "data": data}).encode("utf-8")
+            json_message = json.dumps({"event": event, "data": data}).encode()
+
+            # Seal TSP message
             logger.info(f"Encoding TSP message: {json_message}")
             _, tsp_message = self._wallet.seal_message(
                 self._did, user_did, json_message
             )
             logger.info("Sending TSP message:")
             tsp.color_print(tsp_message)
-            encoded_message = base64.b64encode(tsp_message, b"-_").decode()
+            encoded_message = base64.urlsafe_b64encode(tsp_message).decode()
+
             await sse_stream_writer.send({"event": "message", "data": encoded_message})
 
         async def sse_writer():

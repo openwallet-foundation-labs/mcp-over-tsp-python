@@ -20,4 +20,4 @@ def get_greeting(name: str) -> str:
 
 if __name__ == "__main__":
     # Initialize and run the server using SSE
-    mcp.run(transport="sse")
+    mcp.run(transport="ws")

@@ -3,7 +3,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import urljoin, urlparse
 
 import anyio
 import httpx
@@ -12,20 +12,12 @@ from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import ServerSentEvent, aconnect_sse
 
+import mcp.shared.tmcp as tmcp
 import mcp.types as types
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import SessionMessage
-from mcp.shared.tmcp import get_or_create_identity
 
 logger = logging.getLogger(__name__)
-
-
-def add_request_params(url: str, params: dict[str, str]) -> str:
-    url = urlparse(url)
-    query = dict(parse_qsl(url.query))
-    query.update(params)
-    url = url._replace(query=urlencode(query))
-    return urlunparse(url)
 
 
 def remove_request_params(url: str) -> str:
@@ -56,13 +48,10 @@ async def sse_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
+    # initialize TMCP client
     wallet = tsp.SecureStore()
-    did = get_or_create_identity(wallet, alias=f"{name}TmcpClient", **tmcp_settings)
-
-    # Resolve server
-    url = wallet.verify_vid(server_did)
-    print("Server endpoint:", url)
-    url = add_request_params(url, {"did": did})
+    did = tmcp.init_identity(wallet, alias=f"{name}TmcpSseClient", **tmcp_settings)
+    url = tmcp.resolve_server(wallet, server_did, did)
 
     async with anyio.create_task_group() as tg:
         try:
@@ -83,8 +72,9 @@ async def sse_client(
                         try:
                             async for sse in event_source.aiter_sse():
                                 # Open TSP message
-                                tsp_message = base64.b64decode(sse.data, "-_")
+                                tsp_message = base64.urlsafe_b64decode(sse.data)
                                 json_message = wallet.open_message(tsp_message).message
+
                                 json_data = json.loads(json_message)
                                 sse = ServerSentEvent(**json_data)
 
@@ -143,7 +133,6 @@ async def sse_client(
                         try:
                             async with write_stream_reader:
                                 async for session_message in write_stream_reader:
-                                    # Encrypt & sign message with TSP
                                     logger.debug(
                                         f"Sending client message: {session_message}"
                                     )
@@ -154,9 +143,12 @@ async def sse_client(
                                             exclude_none=True,
                                         )
                                     ).encode("utf-8")
+
+                                    # Encrypt & sign message with TSP
                                     _, tsp_message = wallet.seal_message(
                                         did, server_did, json_message
                                     )
+
                                     response = await client.post(
                                         endpoint_url, data=tsp_message
                                     )

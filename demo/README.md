@@ -1,5 +1,11 @@
 # TMCP Demo
 
+The TMCP demo supports two kinds of transport:
+- Server-Sent Events (`sse`)
+- WebSockets (`ws`)
+
+To change which kind of transport is used, set the `transport` parameter in both `client.py` and `server.py` to the desired transport type.
+
 ## Run the server
 In the `server` directory, run the demo TMCP server with:
 ```

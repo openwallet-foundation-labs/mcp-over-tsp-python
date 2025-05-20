@@ -14,6 +14,7 @@ from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
+import tsp_python as tsp
 from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,9 +23,11 @@ from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.routing import Mount, Route
+from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.types import Receive, Scope, Send
+from starlette.websockets import WebSocket
 
+import mcp.shared.tmcp as tmcp
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import (
     BearerAuthBackend,
@@ -49,6 +52,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.websocket import websocket_server
 from mcp.shared.context import LifespanContextT, RequestContext
 from mcp.types import (
     AnyFunction,
@@ -91,6 +95,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     port: int = 8000
     mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
     sse_path: str = "/sse"
+    ws_path: str = "/ws"
     message_path: str = "/messages/"
     streamable_http_path: str = "/mcp"
 
@@ -100,9 +105,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
         False  # If True, uses true stateless mode (new transport per request)
     )
 
-    tmcp_settings: Any = {
-        "transport": "http://127.0.0.1:8000/sse",
-    }
+    tmcp_settings: Any = {}
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -218,7 +221,7 @@ class TMCP:
 
     def run(
         self,
-        transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
+        transport: Literal["stdio", "sse", "ws", "streamable-http"] = "stdio",
         mount_path: str | None = None,
     ) -> None:
         """Run the FastMCP server. Note this is a synchronous function.
@@ -227,15 +230,31 @@ class TMCP:
             transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
             mount_path: Optional mount path for SSE transport
         """
-        TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
+        TRANSPORTS = Literal["stdio", "sse", "ws", "streamable-http"]
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
+
+        if "transport" not in self.settings.tmcp_settings:
+            if transport == "sse":
+                self.settings.tmcp_settings["transport"] = (
+                    f"http://{self.settings.host}:{self.settings.port}{self.settings.sse_path}"
+                )
+            elif transport == "ws":
+                self.settings.tmcp_settings["transport"] = (
+                    f"ws://{self.settings.host}:{self.settings.port}{self.settings.ws_path}"
+                )
+
+        print(
+            f"Transport: {transport.upper()} on {self.settings.tmcp_settings.get('transport')}"
+        )
 
         match transport:
             case "stdio":
                 anyio.run(self.run_stdio_async)
             case "sse":
                 anyio.run(lambda: self.run_sse_async(mount_path))
+            case "ws":
+                anyio.run(self.run_ws_async)
             case "streamable-http":
                 anyio.run(self.run_streamable_http_async)
 
@@ -613,6 +632,22 @@ class TMCP:
         server = uvicorn.Server(config)
         await server.serve()
 
+    async def run_ws_async(self) -> None:
+        """Run the server using WebSocket transport."""
+        import uvicorn
+
+        starlette_app = self.ws_app()
+
+        config = uvicorn.Config(
+            app=starlette_app,
+            host=self.settings.host,
+            port=self.settings.port,
+            log_level=self.settings.log_level.lower(),
+        )
+
+        server = uvicorn.Server(config)
+        await server.serve()
+
     async def run_streamable_http_async(self) -> None:
         """Run the server using StreamableHTTP transport."""
         import uvicorn
@@ -767,6 +802,41 @@ class TMCP:
         return Starlette(
             debug=self.settings.debug, routes=routes, middleware=middleware
         )
+
+    def ws_app(self):
+        """Return an instance of the Websocket server app."""
+
+        wallet = tsp.SecureStore()
+        did = tmcp.init_identity(
+            wallet, alias=f"{self.name}TmcpWsServer", **self.settings.tmcp_settings
+        )
+
+        async def handle_ws(websocket: WebSocket):
+            user_did = websocket.query_params["did"]
+            logger.info(f"New WebSocket connection from {user_did}")
+            wallet.verify_vid(user_did)
+
+            async with websocket_server(
+                websocket.scope,
+                websocket.receive,
+                websocket.send,
+                wallet,
+                did,
+                user_did,
+            ) as (ws_read_stream, ws_write_stream):
+                await self._mcp_server.run(
+                    ws_read_stream,
+                    ws_write_stream,
+                    self._mcp_server.create_initialization_options(),
+                    raise_exceptions=self.settings.debug,
+                )
+
+        app = Starlette(
+            debug=self.settings.debug,
+            routes=[WebSocketRoute("/ws", endpoint=handle_ws)],
+        )
+
+        return app
 
     def streamable_http_app(self) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""

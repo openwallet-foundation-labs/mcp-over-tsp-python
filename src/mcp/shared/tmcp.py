@@ -1,4 +1,6 @@
+import base64
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from uuid import uuid4
 
 import requests
@@ -14,9 +16,7 @@ class TmcpSettings(BaseSettings):
     transport: str = "tmcpclient://"  # clients are not publicly accessible
 
 
-def get_or_create_identity(
-    wallet: tsp.SecureStore, alias: str, **tmcp_settings: Any
-) -> str:
+def init_identity(wallet: tsp.SecureStore, alias: str, **tmcp_settings: Any) -> str:
     """Get an identity or create a new identity"""
 
     settings: TmcpSettings = TmcpSettings(**tmcp_settings)
@@ -56,3 +56,18 @@ def get_or_create_identity(
     wallet.add_private_vid(identity, alias)
 
     return did
+
+
+def add_request_params(url_str: str, params: dict[str, str]) -> str:
+    url = urlparse(url_str)
+    query = dict(parse_qsl(url.query))
+    query.update(params)
+    url = url._replace(query=urlencode(query))
+    return urlunparse(url)
+
+
+def resolve_server(wallet: tsp.SecureStore, server_did: str, did: str):
+    url = wallet.verify_vid(server_did)
+    print("Server endpoint:", url)
+    url = add_request_params(url, {"did": did})
+    return url
