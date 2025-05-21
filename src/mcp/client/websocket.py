@@ -57,8 +57,10 @@ async def websocket_client(
 
     # initialize TMCP client
     wallet = tsp.SecureStore()
-    did = tmcp.init_identity(wallet, alias=f"{name}TmcpWsClient", **tmcp_settings)
+    did = tmcp.init_identity(wallet, alias=f"{name}TmcpClient", **tmcp_settings)
     url = tmcp.resolve_server(wallet, server_did, did)
+    if not url.startswith("ws://") and not url.startswith("wss://"):
+        raise Exception(f"Server does not use WebSockets for transport: {url}")
 
     # Connect using websockets, requesting the "mcp" subprotocol
     async with ws_connect(url, subprotocols=[Subprotocol("mcp")]) as ws:

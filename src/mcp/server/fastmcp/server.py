@@ -237,7 +237,7 @@ class TMCP:
         if "transport" not in self.settings.tmcp_settings:
             if transport == "sse":
                 self.settings.tmcp_settings["transport"] = (
-                    f"http://{self.settings.host}:{self.settings.port}{self.settings.sse_path}"
+                    f"sse://{self.settings.host}:{self.settings.port}{self.settings.sse_path}"
                 )
             elif transport == "ws":
                 self.settings.tmcp_settings["transport"] = (
@@ -1063,9 +1063,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         Returns:
             The resource content as either text or bytes
         """
-        assert (
-            self._fastmcp is not None
-        ), "Context is not available outside of a request"
+        assert self._fastmcp is not None, (
+            "Context is not available outside of a request"
+        )
         return await self._fastmcp.read_resource(uri)
 
     async def log(

@@ -66,8 +66,8 @@ def add_request_params(url_str: str, params: dict[str, str]) -> str:
     return urlunparse(url)
 
 
-def resolve_server(wallet: tsp.SecureStore, server_did: str, did: str):
+def resolve_server(wallet: tsp.SecureStore, server_did: str, did: str | None = None):
     url = wallet.verify_vid(server_did)
-    print("Server endpoint:", url)
-    url = add_request_params(url, {"did": did})
+    if did is not None:
+        url = add_request_params(url, {"did": did})
     return url

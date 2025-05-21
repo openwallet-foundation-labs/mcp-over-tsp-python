@@ -1,11 +1,12 @@
 import asyncio
 from contextlib import AsyncExitStack
-from typing import Literal
 
+import tsp_python as tsp
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
 import mcp
+import mcp.shared.tmcp as tmcp
 from mcp.client.sse import sse_client
 from mcp.client.websocket import websocket_client
 
@@ -21,26 +22,23 @@ class TMCPClient:
         self.anthropic = Anthropic()
         self.name = name
 
-    async def connect_to_server(
-        self,
-        server_did: str,
-        transport: Literal["sse", "ws"] = "sse",
-    ):
+    async def connect_to_server(self, server_did: str):
         """Connect to an MCP server"""
 
-        TRANSPORTS = Literal["sse", "ws"]
-        if transport not in TRANSPORTS.__args__:  # type: ignore
-            raise ValueError(f"Unknown transport: {transport}")
+        # resolve server DID to determine what transport we need to use
+        url = tmcp.resolve_server(tsp.SecureStore(), server_did)
+        print("Server endpoint:", url)
 
-        match transport:
-            case "sse":
-                self.read, self.write = await self.exit_stack.enter_async_context(
-                    sse_client(self.name, server_did)
-                )
-            case "ws":
-                self.read, self.write = await self.exit_stack.enter_async_context(
-                    websocket_client(self.name, server_did)
-                )
+        if url.startswith("sse"):
+            self.read, self.write = await self.exit_stack.enter_async_context(
+                sse_client(self.name, server_did)
+            )
+        elif url.startswith("ws"):
+            self.read, self.write = await self.exit_stack.enter_async_context(
+                websocket_client(self.name, server_did)
+            )
+        else:
+            raise ValueError(f"Unsupported transport: {url}")
 
         self.session = await self.exit_stack.enter_async_context(
             mcp.ClientSession(self.read, self.write)
@@ -157,7 +155,7 @@ async def main():
 
     client = TMCPClient("Demo")
     try:
-        await client.connect_to_server(sys.argv[1], transport="ws")
+        await client.connect_to_server(sys.argv[1])
         await client.chat_loop()
     finally:
         await client.cleanup()

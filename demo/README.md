@@ -1,10 +1,6 @@
 # TMCP Demo
 
-The TMCP demo supports two kinds of transport:
-- Server-Sent Events (`sse`)
-- WebSockets (`ws`)
-
-To change which kind of transport is used, set the `transport` parameter in both `client.py` and `server.py` to the desired transport type.
+This TMCP demo shows how an MCP client and an MCP server can securely communicate over TSP.
 
 ## Run the server
 In the `server` directory, run the demo TMCP server with:
@@ -12,6 +8,17 @@ In the `server` directory, run the demo TMCP server with:
 uv run server.py
 ```
 This hosts the demo TMCP server locally. When it starts, it prints its own DID. This DID will be either a newly generated DID published on <https://did.teaspoon.world/>, or a previously saved DID from the wallet using the server's name as an alias.
+
+The TMCP supports two kinds of transport:
+- Server-Sent Events (`sse`)
+- WebSockets (`ws`)
+
+The server uses SSE by default. If you want to use another kind of transport you can specify this as the second argument of `server.py`. For example, to use WebSockets you can do:
+```
+uv run server.py ws
+```
+
+The transport information is stored in the server's DID, so if you restart it with a different transport type, a new DID will be generated. The client will automatically determine the transport type to use based on the server's DID.
 
 ## Run the client
 For the client, you will need an Anthropic API key, which you can get [here](https://console.anthropic.com/settings/keys). In the `client` directory, create a `.env` file with your Anthropic API key:

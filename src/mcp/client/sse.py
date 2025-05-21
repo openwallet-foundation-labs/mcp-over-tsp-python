@@ -50,8 +50,13 @@ async def sse_client(
 
     # initialize TMCP client
     wallet = tsp.SecureStore()
-    did = tmcp.init_identity(wallet, alias=f"{name}TmcpSseClient", **tmcp_settings)
+    did = tmcp.init_identity(wallet, alias=f"{name}TmcpClient", **tmcp_settings)
     url = tmcp.resolve_server(wallet, server_did, did)
+    if not url.startswith("sse://") and not url.startswith("sses://"):
+        raise Exception(f"Server does not use SSE for transport: {url}")
+
+    url = url.replace("sse://", "http://")  # SSE actually just uses HTTP
+    url = url.replace("sses://", "https://")
 
     async with anyio.create_task_group() as tg:
         try:

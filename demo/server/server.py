@@ -19,5 +19,8 @@ def get_greeting(name: str) -> str:
 
 
 if __name__ == "__main__":
-    # Initialize and run the server using SSE
-    mcp.run(transport="ws")
+    import sys
+
+    # Initialize and run the server
+    transport = sys.argv[1] if len(sys.argv) >= 2 else "sse"
+    mcp.run(transport=transport)
