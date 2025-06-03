@@ -44,4 +44,4 @@ uv add git+https://github.com/openwallet-foundation-labs/mcp-over-tsp-python
 
 Then, if the server uses the `FastMCP` server, replace it with our modified `TMCP` server. If the server implements its own MCP server, make sure it uses one of the transport clients that is also supported by TMCP (e.g. SSE or WebSockets). If you want to use WebSockets, make sure to enable the `ws` feature of the MCP dependency, you can do this by using `--extra ws` when adding the TMCP fork.
 
-The `server-git` and the `server-sqlite` directories contain examples of such modified MCP servers. These two example MCP servers come from the [MCP Servers](https://github.com/modelcontextprotocol/servers) repository.
+The `server-duckduckgo`, `server-git`, and the `server-sqlite` directories contain examples of such modified MCP servers. You can interact with these example servers using our same TMCP demo client.

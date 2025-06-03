@@ -1,0 +1,3 @@
+[submodule "server-duckduckgo"]
+	path = demo/server-duckduckgo
+	url = https://github.com/openwallet-foundation-labs/duckduckgo-mcp-server
