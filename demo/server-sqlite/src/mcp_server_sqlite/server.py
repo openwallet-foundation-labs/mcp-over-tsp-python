@@ -10,8 +10,10 @@ import tsp_python as tsp
 import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse
-from starlette.routing import Route, WebSocketRoute
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.routing import Mount, Route, WebSocketRoute
+from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket
 
 import mcp.shared.tmcp as tmcp
@@ -19,6 +21,7 @@ import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.server.lowlevel.server import NotificationOptions
 from mcp.server.models import InitializationOptions
+from mcp.server.sse import SseServerTransport
 from mcp.server.websocket import websocket_server
 
 # reconfigure UnicodeEncodeError prone default (i.e. windows-1252) to utf-8
@@ -456,16 +459,60 @@ async def main(db_path: str):
                     ),
                 )
 
-        app = Starlette(
+        return Starlette(
             routes=[
                 WebSocketRoute("/ws", endpoint=handle_ws),
             ],
         )
 
-        return app
+    def sse_app(transport: str):
+        """Return an instance of the SSE server app."""
+
+        sse = SseServerTransport(
+            server.name,
+            "/messages/",
+            transport=transport,
+        )
+
+        async def handle_sse(scope: Scope, receive: Receive, send: Send):
+            # Add client ID from auth context into request context if available
+            async with sse.connect_sse(
+                scope,
+                receive,
+                send,
+            ) as streams:
+                await server.run(
+                    streams[0],
+                    streams[1],
+                    server.create_initialization_options(),
+                )
+            return Response()
+
+        routes: list[Route | Mount] = []
+
+        async def sse_endpoint(request: Request) -> Response:
+            # Convert the Starlette request to ASGI parameters
+            return await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
+
+        routes.append(
+            Route(
+                "/sse",
+                endpoint=sse_endpoint,
+                methods=["GET"],
+            )
+        )
+        routes.append(
+            Mount(
+                "/messages/",
+                app=sse.handle_post_message,
+            )
+        )
+
+        return Starlette(routes=routes)
 
     # Run the server using WebSocket transport
-    starlette_app = ws_app("ws://0.0.0.0:8000/ws")
+    # starlette_app = ws_app("ws://0.0.0.0:8000/ws")
+    starlette_app = sse_app("sse://0.0.0.0:8000/sse")
     config = uvicorn.Config(app=starlette_app, host="0.0.0.0", port=8000)
 
     uvi_server = uvicorn.Server(config)
