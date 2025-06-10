@@ -13,8 +13,8 @@ class TmcpSettings(BaseSettings):
 
     did_publish_url: str = "https://did.teaspoon.world/add-vid"
     did_publish_history_url: str = "https://did.teaspoon.world/add-history/{did}"
-    # did_format: str = "did:web:did.teaspoon.world:endpoint:{name}-{uuid}"  # format for did:web
-    did_format: str = "did.teaspoon.world/endpoint/{name}-{uuid}"  # format for did:webvh
+    # did_format: str = "did:web:did.teaspoon.world:endpoint:{name}"  # format for did:web
+    did_format: str = "did.teaspoon.world/endpoint/{name}"  # format for did:webvh
     transport: str = "tmcpclient://"  # clients are not publicly accessible
 
 
@@ -30,7 +30,7 @@ def init_identity(wallet: tsp.SecureStore, alias: str, **tmcp_settings: Any) -> 
         try:
             wallet.verify_vid(did)
         except Exception as e:
-            if 'ResolveVid("Not found")' in e.args[0]:
+            if 'ResolveVid("Not found")' in e.args[0] or 'kind: Status(404)' in e.args[0]:
                 did = None  # create a new DID
             else:
                 raise e
@@ -40,7 +40,7 @@ def init_identity(wallet: tsp.SecureStore, alias: str, **tmcp_settings: Any) -> 
             return did
 
     # Initialize new TSP identity
-    did = settings.did_format.format(name=alias, uuid=uuid4())
+    did = settings.did_format.format(name=f"{alias}-{uuid4()}"[:63])
     # identity = tsp.OwnedVid.bind(did, settings.transport)  # did:web
     (identity, history) = tsp.OwnedVid.new_did_webvh(did, settings.transport)  # did:webvh
 
