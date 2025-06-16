@@ -78,11 +78,13 @@ async def websocket_server(
                 async for session_message in write_stream_reader:
                     json_message = session_message.message.model_dump_json(
                         by_alias=True, exclude_none=True
-                    ).encode()
+                    )
 
                     # Seal TSP message
                     logger.info(f"Encoding TSP message: {json_message}")
-                    _, tsp_message = wallet.seal_message(did, user_did, json_message)
+                    _, tsp_message = wallet.seal_message(
+                        did, user_did, json_message.encode()
+                    )
                     logger.info("Sending TSP message:")
                     tsp.color_print(tsp_message)
                     encoded_message = base64.urlsafe_b64encode(tsp_message).decode()

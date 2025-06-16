@@ -137,12 +137,12 @@ class SseServerTransport:
         ](0)
 
         async def sse_send(event: str, data: Any):
-            json_message = json.dumps({"event": event, "data": data}).encode()
+            json_message = json.dumps({"event": event, "data": data})
 
             # Seal TSP message
             logger.info(f"Encoding TSP message: {json_message}")
             _, tsp_message = self._wallet.seal_message(
-                self._did, user_did, json_message
+                self._did, user_did, json_message.encode()
             )
             logger.info("Sending TSP message:")
             tsp.color_print(tsp_message)
