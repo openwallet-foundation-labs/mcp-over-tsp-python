@@ -1,4 +1,9 @@
 from mcp.server.fastmcp import TMCP
+from mcp.server.fastmcp.prompts import base
+from mcp.types import (
+    SamplingMessage,
+    TextContent,
+)
 
 # Create an MCP server
 mcp = TMCP("Demo")
@@ -16,6 +21,39 @@ def add(a: int, b: int) -> int:
 def get_greeting(name: str) -> str:
     """Get a personalized greeting"""
     return f"Hello, {name}!"
+
+
+# Add a predefined prompt with a `name` parameter
+@mcp.prompt()
+async def yoda(name: str) -> list[base.Message]:
+    return [
+        base.UserMessage(
+            TextContent(
+                type="text",
+                text=f"Hello! I'm {name}. In this conversation, please talk to me like you are Yoda from Star Wars.",
+            )
+        )
+    ]
+
+
+# Try out sampling by using this tool
+@mcp.tool()
+async def sampling_demo(message: str) -> str:
+    """Perform a sample request to show how the MCP's sample functionality works"""
+
+    value = await mcp.get_context().session.create_message(
+        messages=[
+            SamplingMessage(
+                role="user",
+                content=TextContent(
+                    type="text", text=f"What do you want to do with this: {message}"
+                ),
+            )
+        ],
+        max_tokens=100,
+    )
+
+    return f"Received back {value.content}"
 
 
 if __name__ == "__main__":
