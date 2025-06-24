@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
 import anyio
 import httpx
@@ -18,6 +19,7 @@ from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
+from mcp.shared import tmcp
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
@@ -76,11 +78,13 @@ class StreamableHTTPTransport:
 
     def __init__(
         self,
-        url: str,
+        name: str,
+        server_did: str,
         headers: dict[str, str] | None = None,
         timeout: float | timedelta = 30,
         sse_read_timeout: float | timedelta = 60 * 5,
         auth: httpx.Auth | None = None,
+        **tmcp_settings: Any,
     ) -> None:
         """Initialize the StreamableHTTP transport.
 
@@ -91,7 +95,6 @@ class StreamableHTTPTransport:
             sse_read_timeout: Timeout for SSE read operations.
             auth: Optional HTTPX authentication handler.
         """
-        self.url = url
         self.headers = headers or {}
         self.timeout = timeout.total_seconds() if isinstance(timeout, timedelta) else timeout
         self.sse_read_timeout = (
@@ -105,6 +108,13 @@ class StreamableHTTPTransport:
             CONTENT_TYPE: JSON,
             **self.headers,
         }
+
+        # initialize TMCP client
+        self.tmcp = tmcp.TmcpIdentityManager(alias=f"{name}TmcpClient", **tmcp_settings)
+        self.tmcp_connection = self.tmcp.get_connection(server_did)
+        self.url = self.tmcp_connection.resolve_server_url(True)
+        if not self.url.startswith("http://") and not self.url.startswith("https://"):
+            raise Exception(f"Server does not use HTTP for transport: {self.url}")
 
     def _prepare_request_headers(self, base_headers: dict[str, str]) -> dict[str, str]:
         """Update headers with session ID and protocol version if available."""
@@ -159,7 +169,7 @@ class StreamableHTTPTransport:
         """Handle an SSE event, returning True if the response is complete."""
         if sse.event == "message":
             try:
-                message = JSONRPCMessage.model_validate_json(sse.data)
+                message = JSONRPCMessage.model_validate_json(self.tmcp_connection.open_message(sse.data))
                 logger.debug(f"SSE message: {message}")
 
                 # Extract protocol version from initialization response
@@ -256,10 +266,11 @@ class StreamableHTTPTransport:
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
 
+        data = self.tmcp_connection.seal_message(message.model_dump_json(by_alias=True, exclude_none=True))
         async with ctx.client.stream(
             "POST",
             self.url,
-            json=message.model_dump(by_alias=True, mode="json", exclude_none=True),
+            content=data,
             headers=headers,
         ) as response:
             if response.status_code == 202:
@@ -299,7 +310,7 @@ class StreamableHTTPTransport:
         """Handle JSON response from the server."""
         try:
             content = await response.aread()
-            message = JSONRPCMessage.model_validate_json(content)
+            message = JSONRPCMessage.model_validate_json(self.tmcp_connection.open_message(content.decode()))
 
             # Extract protocol version from initialization response
             if is_initialization:
@@ -439,13 +450,15 @@ class StreamableHTTPTransport:
 
 @asynccontextmanager
 async def streamablehttp_client(
-    url: str,
+    name: str,
+    server_did: str,
     headers: dict[str, str] | None = None,
     timeout: float | timedelta = 30,
     sse_read_timeout: float | timedelta = 60 * 5,
     terminate_on_close: bool = True,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
+    **tmcp_settings: Any,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -466,14 +479,14 @@ async def streamablehttp_client(
             - write_stream: Stream for sending messages to the server
             - get_session_id_callback: Function to retrieve the current session ID
     """
-    transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout, auth)
+    transport = StreamableHTTPTransport(name, server_did, headers, timeout, sse_read_timeout, auth, **tmcp_settings)
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
     async with anyio.create_task_group() as tg:
         try:
-            logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
+            logger.debug(f"Connecting to StreamableHTTP endpoint: {name}")
 
             async with httpx_client_factory(
                 headers=transport.request_headers,

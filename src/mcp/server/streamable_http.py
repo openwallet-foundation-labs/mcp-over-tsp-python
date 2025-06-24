@@ -28,6 +28,7 @@ from mcp.server.transport_security import (
     TransportSecurityMiddleware,
     TransportSecuritySettings,
 )
+from mcp.shared import tmcp
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -138,6 +139,7 @@ class StreamableHTTPServerTransport:
 
     def __init__(
         self,
+        tmcp_connection: tmcp.TmcpConnection,
         mcp_session_id: str | None,
         is_json_response_enabled: bool = False,
         event_store: EventStore | None = None,
@@ -175,6 +177,8 @@ class StreamableHTTPServerTransport:
         ] = {}
         self._terminated = False
 
+        self.tmcp_connection = tmcp_connection
+
     def _create_error_response(
         self,
         error_message: str,
@@ -201,7 +205,7 @@ class StreamableHTTPServerTransport:
         )
 
         return Response(
-            error_response.model_dump_json(by_alias=True, exclude_none=True),
+            self.tmcp_connection.seal_message(error_response.model_dump_json(by_alias=True, exclude_none=True)),
             status_code=status_code,
             headers=response_headers,
         )
@@ -221,7 +225,9 @@ class StreamableHTTPServerTransport:
             response_headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
         return Response(
-            response_message.model_dump_json(by_alias=True, exclude_none=True) if response_message else None,
+            self.tmcp_connection.seal_message(response_message.model_dump(by_alias=True, exclude_none=True))
+            if response_message
+            else None,
             status_code=status_code,
             headers=response_headers,
         )
@@ -234,7 +240,9 @@ class StreamableHTTPServerTransport:
         """Create event data dictionary from an EventMessage."""
         event_data = {
             "event": "message",
-            "data": event_message.message.model_dump_json(by_alias=True, exclude_none=True),
+            "data": self.tmcp_connection.seal_message(
+                event_message.message.model_dump_json(by_alias=True, exclude_none=True)
+            ),
         }
 
         # If an event ID was provided, include it
@@ -337,6 +345,7 @@ class StreamableHTTPServerTransport:
                 await response(scope, receive, send)
                 return
 
+            body = self.tmcp_connection.open_message(body.decode())
             try:
                 raw_message = json.loads(body)
             except json.JSONDecodeError as e:

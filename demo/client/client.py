@@ -31,18 +31,16 @@ class TMCPClient:
 
         if url.startswith("sse"):
             self.read, self.write = await self.exit_stack.enter_async_context(
-                sse_client(self.name, server_did)
+                sse_client(self.name, server_did, verbose=False)
             )
         elif url.startswith("ws"):
             self.read, self.write = await self.exit_stack.enter_async_context(
-                websocket_client(self.name, server_did)
+                websocket_client(self.name, server_did, verbose=False)
             )
         else:
             raise ValueError(f"Unsupported transport: {url}")
 
-        self.session = await self.exit_stack.enter_async_context(
-            mcp.ClientSession(self.read, self.write)
-        )
+        self.session = await self.exit_stack.enter_async_context(mcp.ClientSession(self.read, self.write))
 
         await self.session.initialize()
 
@@ -88,14 +86,10 @@ class TMCPClient:
 
                 # Execute tool call
                 result = await self.session.call_tool(tool_name, tool_args)
-                print(
-                    f"\n\033[90m[Calling tool {tool_name} with args {tool_args}]\033[0m"
-                )
+                print(f"\n\033[90m[Calling tool {tool_name} with args {tool_args}]\033[0m")
 
                 assistant_message_content.append(content)
-                messages.append(
-                    {"role": "assistant", "content": assistant_message_content}
-                )
+                messages.append({"role": "assistant", "content": assistant_message_content})
                 messages.append(
                     {
                         "role": "user",
@@ -155,9 +149,7 @@ class TMCPClient:
 
 async def main():
     if len(sys.argv) < 2:
-        print(
-            "Usage: uv run client.py did:web:did.teaspoon.world:endpoint:YourMcpServer"
-        )
+        print("Usage: uv run client.py did:web:did.teaspoon.world:endpoint:YourMcpServer")
         sys.exit(1)
 
     client = TMCPClient("Demo")

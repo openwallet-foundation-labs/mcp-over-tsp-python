@@ -23,6 +23,7 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared import tmcp
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ class StreamableHTTPSessionManager:
         json_response: bool = False,
         stateless: bool = False,
         security_settings: TransportSecuritySettings | None = None,
+        **tmcp_settings: Any,
     ):
         self.app = app
         self.event_store = event_store
@@ -78,6 +80,8 @@ class StreamableHTTPSessionManager:
         # Thread-safe tracking of run() calls
         self._run_lock = threading.Lock()
         self._has_started = False
+
+        self.tmcp = tmcp.TmcpIdentityManager(alias=f"{app.name}TmcpHttpServer", **tmcp_settings)
 
     @contextlib.asynccontextmanager
     async def run(self) -> AsyncIterator[None]:
@@ -160,8 +164,16 @@ class StreamableHTTPSessionManager:
             send: ASGI send function
         """
         logger.debug("Stateless mode: Creating new transport for this request")
+
+        request = Request(scope, receive, send)
+        user_did = request.query_params.get("did")  # TODO: is there a better way to get the user_did?
+        if user_did is None:
+            logger.warning("Received request without user did")
+            raise Exception("did is required")
+
         # No session ID needed in stateless mode
         http_transport = StreamableHTTPServerTransport(
+            tmcp_connection=self.tmcp.get_connection(user_did),
             mcp_session_id=None,  # No session tracking in stateless mode
             is_json_response_enabled=self.json_response,
             event_store=None,  # No event store in stateless mode
@@ -212,12 +224,19 @@ class StreamableHTTPSessionManager:
             await transport.handle_request(scope, receive, send)
             return
 
+        request = Request(scope, receive, send)
+        user_did = request.query_params.get("did")  # TODO: is there a better way to get the user_did?
+        if user_did is None:
+            logger.warning("Received request without user did")
+            raise Exception("did is required")
+
         if request_mcp_session_id is None:
             # New session case
             logger.debug("Creating new transport")
             async with self._session_creation_lock:
                 new_session_id = uuid4().hex
                 http_transport = StreamableHTTPServerTransport(
+                    tmcp_connection=self.tmcp.get_connection(user_did),
                     mcp_session_id=new_session_id,
                     is_json_response_enabled=self.json_response,
                     event_store=self.event_store,  # May be None (no resumability)

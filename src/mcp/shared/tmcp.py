@@ -1,3 +1,5 @@
+import base64
+import logging
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from uuid import uuid4
@@ -5,6 +7,8 @@ from uuid import uuid4
 import httpx
 import tsp_python as tsp
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class TmcpSettings(BaseSettings):
@@ -15,54 +19,117 @@ class TmcpSettings(BaseSettings):
     # did_format: str = "did:web:did.teaspoon.world:endpoint:{name}"  # format for did:web
     did_format: str = "did.teaspoon.world/endpoint/{name}"  # format for did:webvh
     transport: str = "tmcpclient://"  # clients are not publicly accessible
+    verbose: bool = True  # whether or not TSP message should be printed
+    wallet_url: str = "sqlite://wallet.sqlite"
+    wallet_password: str = "unsecure"
+    use_webvh: bool = True
 
 
-def init_identity(wallet: tsp.SecureStore, alias: str, **tmcp_settings: Any) -> str:
-    """Get an identity or create a new identity"""
+class TmcpIdentityManager:
+    def __init__(self, alias: str, **tmcp_settings: Any):
+        self.settings: TmcpSettings = TmcpSettings(**tmcp_settings)
+        self.wallet = tsp.SecureStore(
+            self.settings.wallet_url,
+            self.settings.wallet_password,
+        )
+        self.did = self._init_identity(alias)
 
-    settings: TmcpSettings = TmcpSettings(**tmcp_settings)
-
-    did = wallet.resolve_alias(alias)
-
-    if did is not None:
-        # Verify DID still exists
-        try:
-            wallet.verify_vid(did)
-        except Exception as e:
-            if 'ResolveVid("Not found")' in e.args[0] or "kind: Status(404)" in e.args[0]:
-                did = None  # create a new DID
-            else:
-                raise e
+    def _init_identity(self, alias: str) -> str:
+        did = self.wallet.resolve_alias(alias)
 
         if did is not None:
-            print("Using existing DID: " + did)
-            return did
+            # Verify DID still exists
+            try:
+                self.wallet.verify_vid(did)
+            except Exception as e:
+                if 'ResolveVid("Not found")' in e.args[0] or "kind: Status(404)" in e.args[0]:
+                    did = None  # create a new DID
+                else:
+                    raise e
 
-    # Initialize new TSP identity
-    did = settings.did_format.format(name=f"{alias}-{uuid4()}"[:63])
-    # identity = tsp.OwnedVid.bind(did, settings.transport)  # did:web
-    (identity, history) = tsp.OwnedVid.new_did_webvh(did, settings.transport)  # did:webvh
+            if did is not None:
+                print("Using existing DID: " + did)
+                return did
 
-    did = identity.identifier()
+        # Initialize new TSP identity
+        did = self.settings.did_format.format(name=f"{alias}-{uuid4()}"[:63])
+        if self.settings.use_webvh:
+            (identity, history) = tsp.OwnedVid.new_did_webvh(did, self.settings.transport)
+        else:
+            identity = tsp.OwnedVid.bind(did, self.settings.transport)
 
-    # Publish DID
-    httpx.post(
-        settings.did_publish_url,
-        data=identity.json(),
-        headers={"Content-type": "application/json"},
-    ).raise_for_status()
+        did = identity.identifier()
 
-    httpx.post(
-        settings.did_publish_history_url.format(did=did),
-        data=history,
-        headers={"Content-type": "application/json"},
-    ).raise_for_status()
+        # Publish DID
+        httpx.post(
+            self.settings.did_publish_url,
+            data=identity.json(),
+            headers={"Content-type": "application/json"},
+        ).raise_for_status()
 
-    print("Published client DID:", did)
+        if self.settings.use_webvh:
+            httpx.post(
+                self.settings.did_publish_history_url.format(did=did),
+                data=history,
+                headers={"Content-type": "application/json"},
+            ).raise_for_status()
 
-    wallet.add_private_vid(identity, alias)
+        print("Published client DID:", did)
 
-    return did
+        self.wallet.add_private_vid(identity, alias)
+
+        return did
+
+    def get_connection(self, other_did: str):
+        self.wallet.verify_vid(other_did)
+        return TmcpConnection(self.wallet, self.did, other_did, self.settings.verbose)
+
+
+class TmcpConnection:
+    def __init__(self, wallet: tsp.SecureStore, my_did: str, other_did: str, verbose: bool = True):
+        self.wallet = wallet
+        self.my_did = my_did
+        self.other_did = other_did
+        self.verbose = verbose
+
+    def seal_message(self, message: str) -> str:
+        # Seal TSP message
+        if self.verbose:
+            logger.info(f"Encoding TSP message: {message}")
+
+        _, tsp_message = self.wallet.seal_message(self.my_did, self.other_did, message.encode())
+
+        if self.verbose:
+            logger.info("Sending TSP message:")
+            print(tsp.color_print(tsp_message))
+
+        return base64.urlsafe_b64encode(tsp_message).decode()
+
+    def open_message(self, message: str) -> str:
+        tsp_message = base64.urlsafe_b64decode(message)
+
+        # Open TSP message
+        if self.verbose:
+            logger.info("Received TSP message:")
+            print(tsp.color_print(tsp_message))
+
+        (sender, receiver) = self.wallet.get_sender_receiver(tsp_message)
+        if receiver != self.my_did:
+            logger.warning(f"Received message intended for: {receiver} (expected {self.my_did})")
+        if sender != self.other_did:
+            logger.warning(f"Received message intended for: {sender} (expected {self.other_did})")
+
+        json_message = self.wallet.open_message(tsp_message)
+        if not isinstance(json_message, tsp.GenericMessage):
+            raise Exception("Received not generic message", json_message)
+
+        if self.verbose:
+            logger.info(f"Decoded TSP message: {json_message.message}")
+
+        return json_message.message
+
+    def resolve_server_url(self, append_did: bool = False) -> str:
+        return resolve_server(self.wallet, self.other_did, self.my_did if append_did else None)
 
 
 def add_request_params(url_str: str, params: dict[str, str]) -> str:

@@ -45,7 +45,6 @@ from typing import Any
 from urllib.parse import quote
 
 import anyio
-import tsp_python as tsp
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
@@ -98,8 +97,7 @@ class SseServerTransport:
         self._security = TransportSecurityMiddleware(security_settings)
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
-        self._wallet = tsp.SecureStore()
-        self._did = tmcp.init_identity(self._wallet, alias=f"{name}TmcpSseServer", **tmcp_settings)
+        self.tmcp = tmcp.TmcpIdentityManager(alias=f"{name}TmcpSseServer", **tmcp_settings)
 
     @asynccontextmanager
     async def connect_sse(self, scope: Scope, receive: Receive, send: Send):
@@ -129,7 +127,7 @@ class SseServerTransport:
         if user_did is None:
             logger.warning("Received request without user did")
             raise Exception("did is required")
-        self._wallet.verify_vid(user_did)
+        tmcp_connection = self.tmcp.get_connection(user_did)
 
         logger.debug(f"Created new session with ID: {user_did}")
         self._read_stream_writers[user_did] = read_stream_writer
@@ -155,13 +153,9 @@ class SseServerTransport:
             json_message = json.dumps({"event": event, "data": data})
 
             # Seal TSP message
-            logger.info(f"Encoding TSP message: {json_message}")
-            _, tsp_message = self._wallet.seal_message(self._did, user_did, json_message.encode())
-            logger.info("Sending TSP message:")
-            tsp.color_print(tsp_message)
-            encoded_message = base64.urlsafe_b64encode(tsp_message).decode()
+            tsp_message = tmcp_connection.seal_message(json_message)
 
-            await sse_stream_writer.send({"event": "message", "data": encoded_message})
+            await sse_stream_writer.send({"event": "message", "data": tsp_message})
 
         async def sse_writer():
             logger.debug("Starting SSE writer")
@@ -207,16 +201,13 @@ class SseServerTransport:
 
         # Open TSP message (only works for known sender DIDs)
         body = await request.body()
-        logger.info("Received TSP message:")
-        tsp.color_print(body)
-        (sender, receiver) = self._wallet.get_sender_receiver(body)
-        if receiver != self._did:
+        (sender, receiver) = self.tmcp.wallet.get_sender_receiver(base64.urlsafe_b64decode(body))
+        if receiver != self.tmcp.did:
             logger.warning(f"Received message intended for: {receiver}")
             response = Response("Incorrect receiver", status_code=400)
             return await response(scope, receive, send)
 
-        json_text = self._wallet.open_message(body).message
-        logger.info(f"Decoded TSP message: {json_text}")
+        json_text = self.tmcp.get_connection(sender).open_message(body.decode())
 
         writer = self._read_stream_writers.get(sender)
         if not writer:

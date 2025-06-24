@@ -229,12 +229,16 @@ class TMCP:
                 self.settings.tmcp_settings["transport"] = (
                     f"sse://{self.settings.host}:{self.settings.port}{self.settings.sse_path}"
                 )
+            if transport == "streamable-http":
+                self.settings.tmcp_settings["transport"] = (
+                    f"http://{self.settings.host}:{self.settings.port}{self.settings.streamable_http_path}"
+                )
             elif transport == "ws":
                 self.settings.tmcp_settings["transport"] = (
                     f"ws://{self.settings.host}:{self.settings.port}{self.settings.ws_path}"
                 )
 
-        print(f"Transport: {transport.upper()} on {self.settings.tmcp_settings.get('transport')}")
+        print(f"Transport: {transport} on {self.settings.tmcp_settings.get('transport')}")
 
         match transport:
             case "stdio":
@@ -814,7 +818,7 @@ class TMCP:
         """Return an instance of the Websocket server app."""
 
         wallet = tsp.SecureStore()
-        did = tmcp.init_identity(wallet, alias=f"{self.name}TmcpWsServer", **self.settings.tmcp_settings)
+        tmcp_manager = tmcp.TmcpIdentityManager(alias=f"{self.name}TmcpWsServer", **self.settings.tmcp_settings)
 
         async def handle_ws(websocket: WebSocket):
             user_did = websocket.query_params["did"]
@@ -825,9 +829,7 @@ class TMCP:
                 websocket.scope,
                 websocket.receive,
                 websocket.send,
-                wallet,
-                did,
-                user_did,
+                tmcp_manager.get_connection(user_did),
             ) as (ws_read_stream, ws_write_stream):
                 await self._mcp_server.run(
                     ws_read_stream,
@@ -856,6 +858,7 @@ class TMCP:
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
                 security_settings=self.settings.transport_security,
+                **self.settings.tmcp_settings,
             )
 
         # Create the ASGI handler

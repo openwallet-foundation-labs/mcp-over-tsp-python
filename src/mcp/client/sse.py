@@ -1,4 +1,3 @@
-import base64
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -7,7 +6,6 @@ from urllib.parse import urljoin, urlparse
 
 import anyio
 import httpx
-import tsp_python as tsp
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import ServerSentEvent, aconnect_sse
@@ -58,9 +56,9 @@ async def sse_client(
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
     # initialize TMCP client
-    wallet = tsp.SecureStore()
-    did = tmcp.init_identity(wallet, alias=f"{name}TmcpClient", **tmcp_settings)
-    url = tmcp.resolve_server(wallet, server_did, did)
+    tmcp_connection = tmcp.TmcpIdentityManager(alias=f"{name}TmcpClient", **tmcp_settings).get_connection(server_did)
+    url = tmcp_connection.resolve_server_url(True)
+
     if not url.startswith("sse://") and not url.startswith("sses://"):
         raise Exception(f"Server does not use SSE for transport: {url}")
 
@@ -87,9 +85,7 @@ async def sse_client(
                         try:
                             async for sse in event_source.aiter_sse():
                                 # Open TSP message
-                                tsp_message = base64.urlsafe_b64decode(sse.data)
-                                json_message = wallet.open_message(tsp_message).message
-
+                                json_message = tmcp_connection.open_message(sse.data)
                                 json_data = json.loads(json_message)
                                 sse = ServerSentEvent(**json_data)
 
@@ -138,20 +134,18 @@ async def sse_client(
                         try:
                             async with write_stream_reader:
                                 async for session_message in write_stream_reader:
-                                    logger.debug(f"Sending client message: {session_message}")
-                                    json_message = json.dumps(
-                                        session_message.message.model_dump(
-                                            by_alias=True,
-                                            mode="json",
-                                            exclude_none=True,
-                                        )
-                                    ).encode("utf-8")
+                                    json_message = session_message.message.model_dump_json(
+                                        by_alias=True,
+                                        exclude_none=True,
+                                    )
 
                                     # Encrypt & sign message with TSP
-                                    _, tsp_message = wallet.seal_message(did, server_did, json_message)
+                                    tsp_message = tmcp_connection.seal_message(json_message)
 
                                     response = await client.post(
-                                        endpoint_url, data=tsp_message, headers={"content-type": "application/tsp"}
+                                        endpoint_url,
+                                        content=tsp_message,
+                                        headers={"content-type": "application/tsp"},
                                     )
                                     response.raise_for_status()
                                     logger.debug("Client message sent successfully: " f"{response.status_code}")

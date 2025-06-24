@@ -93,7 +93,9 @@ class TransportSecurityMiddleware:
             return False
 
         # Content-Type must start with application/tsp
-        if not content_type.lower().startswith("application/tsp"):
+        if not (
+            content_type.lower().startswith("application/tsp") or content_type.lower().startswith("application/json")
+        ):
             logger.warning(f"Invalid Content-Type header: {content_type}")
             return False
 

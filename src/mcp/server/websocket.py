@@ -1,9 +1,7 @@
-import base64
 import logging
 from contextlib import asynccontextmanager
 
 import anyio
-import tsp_python as tsp
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic_core import ValidationError
 from starlette.types import Receive, Scope, Send
@@ -11,19 +9,13 @@ from starlette.websockets import WebSocket
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
+from mcp.shared.tmcp import TmcpConnection
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def websocket_server(
-    scope: Scope,
-    receive: Receive,
-    send: Send,
-    wallet: tsp.SecureStore,
-    did: str,
-    user_did: str,
-):
+async def websocket_server(scope: Scope, receive: Receive, send: Send, tmcp_connection: TmcpConnection):
     """
     WebSocket server transport for MCP. This is an ASGI application, suitable to be
     used with a framework like Starlette and a server like Hypercorn.
@@ -45,17 +37,8 @@ async def websocket_server(
         try:
             async with read_stream_writer:
                 async for msg in websocket.iter_text():
-                    # Open TSP message (only works for known sender DIDs)
-                    msg_bytes = base64.urlsafe_b64decode(msg.encode())
-                    logger.info("Received TSP message:")
-                    tsp.color_print(msg_bytes)
-                    (sender, receiver) = wallet.get_sender_receiver(msg_bytes)
-                    if receiver != did:
-                        logger.warning(f"Received message intended for: {receiver}")
-                        continue
-
-                    json_text = wallet.open_message(msg_bytes).message
-                    logger.info(f"Decoded TSP message: {json_text}")
+                    # Open TSP message
+                    json_text = tmcp_connection.open_message(msg)
 
                     try:
                         client_message = types.JSONRPCMessage.model_validate_json(json_text)
@@ -75,13 +58,9 @@ async def websocket_server(
                     json_message = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
 
                     # Seal TSP message
-                    logger.info(f"Encoding TSP message: {json_message}")
-                    _, tsp_message = wallet.seal_message(did, user_did, json_message.encode())
-                    logger.info("Sending TSP message:")
-                    tsp.color_print(tsp_message)
-                    encoded_message = base64.urlsafe_b64encode(tsp_message).decode()
+                    tsp_message = tmcp_connection.seal_message(json_message)
 
-                    await websocket.send_text(encoded_message)
+                    await websocket.send_text(tsp_message)
         except anyio.ClosedResourceError:
             await websocket.close()
 
