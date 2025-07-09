@@ -1,6 +1,8 @@
 from mcp.server.fastmcp import TMCP
 from mcp.server.fastmcp.prompts import base
+from mcp.server.fastmcp.server import Context
 from mcp.types import (
+    ListRootsResult,
     SamplingMessage,
     TextContent,
 )
@@ -52,6 +54,15 @@ async def sampling_demo(message: str) -> str:
     )
 
     return f"Received back {value.content}"
+
+
+# Try out roots by using this tool
+@mcp.tool()
+async def show_roots(ctx: Context) -> str:
+    """Show the MCP roots provided by the client"""
+    result: ListRootsResult = await ctx.session.list_roots()
+    return result.model_dump_json()
+
 
 
 if __name__ == "__main__":

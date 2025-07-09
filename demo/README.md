@@ -59,7 +59,7 @@ The `server-duckduckgo`, `server-git`, and the `server-sqlite` directories conta
 
 ## Using the fast-agent client
 
-Our demo client only supports basic MCP tool usage and lacks support for other features of MCP such as resources and sampling. To try out these other MCP features, you can use a more advanced MCP client, like [fast-agent](https://github.com/evalstate/fast-agent). In the `client-fast-agent` folder there is a fork of fast-agent which supports TMCP.
+Our demo client only supports basic **MCP tools** and lacks support for other features of MCP such as resources and sampling. To try out these other MCP features, you can use a more advanced MCP client, like [fast-agent](https://github.com/evalstate/fast-agent). In the `client-fast-agent` folder there is a fork of fast-agent which has been modified to support TMCP.
 
 First, set your Anthropic API key in `fastagent.secrets.yaml`:
 
@@ -74,10 +74,14 @@ Then, you can start an interactive session with a TMCP server with the following
 uv run fast-agent go --url did:your_server_did_here
 ```
 
-To try out MCP resources, we have created a demo script `test-resource.py`, which is intended to work with our demo server in the `server` directory. After running the server, put the server's DID in the client's `fastagent.config.yaml`, and then run:
+### Exploring more MCP features
+
+To try out **MCP resources**, we have created a demo script `test-resource.py`, which is intended to work with our demo server in the `server` directory. After running the server, put the server's DID in the client's `fastagent.config.yaml`, and then run:
 
 ```
 uv run test-resource.py
 ```
 
-Fast-agent also supports prompts (with the `/prompts` command in the interactive session) and sampling (see the `sampling_demo` tool in our demo server).
+The `fastagent.config.yaml` config file also contains an example **MCP root**. Using the demo server's `show_roots` tool you can see that the root configuration is shared with the server. This tool may return an error if no roots are configured. MCP roots don't automatically share any data or provide any security guarantees; they only provide a way to share information with the server about what roots the server may use. How these roots are used in practice depends entirely on the server.
+
+Fast-agent also supports **MCP prompts** (with the `/prompts` command in the interactive session) and **MCP sampling** (see the `sampling_demo` tool in our demo server).
