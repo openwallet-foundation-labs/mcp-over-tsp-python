@@ -96,11 +96,24 @@ class TmcpConnection:
         self.verbose = verbose
 
     def seal_message(self, message: str) -> str:
+        message_data = message.encode()
+
         # Seal TSP message
         if self.verbose:
-            logger.info(f"Encoding TSP message: {message}")
+            logger.info(
+                f"Encoding TSP message: {
+                    tsp.GenericMessage(
+                        sender=self.my_did,
+                        receiver=self.other_did,
+                        message=message_data,
+                        nonconfidential_data=None,
+                        crypto_type='',
+                        signature_type='',
+                    )
+                }"
+            )
 
-        _, tsp_message = self.wallet.seal_message(self.my_did, self.other_did, message.encode())
+        _, tsp_message = self.wallet.seal_message(self.my_did, self.other_did, message_data)
 
         if self.verbose:
             logger.info("Sending TSP message:")
@@ -122,14 +135,14 @@ class TmcpConnection:
         if sender != self.other_did:
             logger.warning(f"Received message intended for: {sender} (expected {self.other_did})")
 
-        json_message = self.wallet.open_message(tsp_message)
-        if not isinstance(json_message, tsp.GenericMessage):
-            raise Exception("Received not generic message", json_message)
-
+        opened_message = self.wallet.open_message(tsp_message)
         if self.verbose:
-            logger.info(f"Decoded TSP message: {json_message.message}")
+            logger.info(f"Opened TSP message: {opened_message}")
 
-        return json_message.message
+        if not isinstance(opened_message, tsp.GenericMessage):
+            raise Exception("Received not generic message", opened_message)
+
+        return opened_message.message.decode()
 
     def resolve_server_url(self, append_did: bool = False) -> str:
         return resolve_server(self.wallet, self.other_did, self.my_did if append_did else None)

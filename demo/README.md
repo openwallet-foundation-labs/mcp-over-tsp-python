@@ -74,6 +74,12 @@ Then, you can start an interactive session with a TMCP server with the following
 uv run fast-agent go --url did:your_server_did_here
 ```
 
+Alternatively, you can put the server you want to connect with in `fastagent.config.yaml` and start fast-agent using the servers name from the config:
+
+```
+uv run fast-agent go --servers Demo
+```
+
 ### Exploring more MCP features
 
 To try out **MCP resources**, we have created a demo script `test-resource.py`, which is intended to work with our demo server in the `server` directory. After running the server, put the server's DID in the client's `fastagent.config.yaml`, and then run:
