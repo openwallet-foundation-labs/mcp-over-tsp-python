@@ -4,3 +4,6 @@
 [submodule "demo/client-fast-agent"]
 	path = demo/client-fast-agent
 	url = https://github.com/openwallet-foundation-labs/fast-agent
+[submodule "demo/server-gmail"]
+	path = demo/server-gmail
+	url = https://github.com/openwallet-foundation-labs/gmail-mcp-server

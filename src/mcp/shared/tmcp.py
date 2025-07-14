@@ -53,7 +53,7 @@ class TmcpIdentityManager:
 
         # Initialize new TSP identity
         did_format = self.settings.did_webvh_format if self.settings.use_webvh else self.settings.did_web_format
-        did = did_format.format(name=f"{alias}-{uuid4()}"[:63])
+        did = did_format.format(name=f"{alias.replace(' ', '')}-{uuid4()}"[:63])
         history = None
         if self.settings.use_webvh:
             (identity, history) = tsp.OwnedVid.new_did_webvh(did, self.settings.transport)
