@@ -4,17 +4,19 @@ from enum import Enum
 from pathlib import Path
 
 import git
-import tsp_python as tsp
 import uvicorn
 from pydantic import BaseModel
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse
-from starlette.routing import Route, WebSocketRoute
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.routing import Mount, Route, WebSocketRoute
+from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket
 
 import mcp.shared.tmcp as tmcp
 from mcp.server import Server
 from mcp.server.session import ServerSession
+from mcp.server.sse import SseServerTransport
 from mcp.server.websocket import websocket_server
 from mcp.types import (
     ClientCapabilities,
@@ -140,9 +142,7 @@ def git_log(repo: git.Repo, max_count: int = 10) -> list[str]:
     return log
 
 
-def git_create_branch(
-    repo: git.Repo, branch_name: str, base_branch: str | None = None
-) -> str:
+def git_create_branch(repo: git.Repo, branch_name: str, base_branch: str | None = None) -> str:
     if base_branch:
         base = repo.refs[base_branch]
     else:
@@ -265,18 +265,12 @@ async def serve(repository: Path | None) -> None:
     async def list_repos() -> Sequence[str]:
         async def by_roots() -> Sequence[str]:
             if not isinstance(server.request_context.session, ServerSession):
-                raise TypeError(
-                    "server.request_context.session must be a ServerSession"
-                )
+                raise TypeError("server.request_context.session must be a ServerSession")
 
-            if not server.request_context.session.check_client_capability(
-                ClientCapabilities(roots=RootsCapability())
-            ):
+            if not server.request_context.session.check_client_capability(ClientCapabilities(roots=RootsCapability())):
                 return []
 
-            roots_result: ListRootsResult = (
-                await server.request_context.session.list_roots()
-            )
+            roots_result: ListRootsResult = await server.request_context.session.list_roots()
             logger.debug(f"Roots result: {roots_result}")
             repo_paths = []
             for root in roots_result.roots:
@@ -322,11 +316,7 @@ async def serve(repository: Path | None) -> None:
 
             case GitTools.DIFF:
                 diff = git_diff(repo, arguments["target"])
-                return [
-                    TextContent(
-                        type="text", text=f"Diff with {arguments['target']}:\n{diff}"
-                    )
-                ]
+                return [TextContent(type="text", text=f"Diff with {arguments['target']}:\n{diff}")]
 
             case GitTools.COMMIT:
                 result = git_commit(repo, arguments["message"])
@@ -342,14 +332,10 @@ async def serve(repository: Path | None) -> None:
 
             case GitTools.LOG:
                 log = git_log(repo, arguments.get("max_count", 10))
-                return [
-                    TextContent(type="text", text="Commit history:\n" + "\n".join(log))
-                ]
+                return [TextContent(type="text", text="Commit history:\n" + "\n".join(log))]
 
             case GitTools.CREATE_BRANCH:
-                result = git_create_branch(
-                    repo, arguments["branch_name"], arguments.get("base_branch")
-                )
+                result = git_create_branch(repo, arguments["branch_name"], arguments.get("base_branch"))
                 return [TextContent(type="text", text=result)]
 
             case GitTools.CHECKOUT:
@@ -370,23 +356,19 @@ async def serve(repository: Path | None) -> None:
     def ws_app(transport: str):
         """Return an instance of the Websocket server app."""
 
-        wallet = tsp.SecureStore()
-        did = tmcp.init_identity(
-            wallet, alias=f"{server.name}TmcpWsServer", transport=transport
-        )
+        identity = tmcp.TmcpIdentityManager(alias=f"{server.name}TmcpWsServer", transport=transport)
 
         async def handle_ws(websocket: WebSocket):
             user_did = websocket.query_params["did"]
             logger.info(f"New WebSocket connection from {user_did}")
-            wallet.verify_vid(user_did)
+
+            tmcp_connection = identity.get_connection(user_did)
 
             async with websocket_server(
                 websocket.scope,
                 websocket.receive,
                 websocket.send,
-                wallet,
-                did,
-                user_did,
+                tmcp_connection,
             ) as (ws_read_stream, ws_write_stream):
                 await server.run(ws_read_stream, ws_write_stream, options)
 
@@ -398,8 +380,56 @@ async def serve(repository: Path | None) -> None:
 
         return app
 
+    def sse_app(transport: str):
+        """Return an instance of the SSE server app."""
+
+        sse = SseServerTransport(
+            server.name,
+            "/messages/",
+            transport=transport,
+        )
+
+        async def handle_sse(scope: Scope, receive: Receive, send: Send):
+            # Add client ID from auth context into request context if available
+            async with sse.connect_sse(
+                scope,
+                receive,
+                send,
+            ) as streams:
+                await server.run(
+                    streams[0],
+                    streams[1],
+                    server.create_initialization_options(),
+                )
+            return Response()
+
+        routes: list[Route | Mount] = []
+
+        async def sse_endpoint(request: Request) -> Response:
+            # Convert the Starlette request to ASGI parameters
+            return await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
+
+        routes.append(
+            Route(
+                "/sse",
+                endpoint=sse_endpoint,
+                methods=["GET"],
+            )
+        )
+        routes.append(
+            Mount(
+                "/messages/",
+                app=sse.handle_post_message,
+            )
+        )
+
+        return Starlette(routes=routes)
+
     # Run the server using WebSocket transport
-    starlette_app = ws_app("ws://0.0.0.0:8000/ws")
+    # starlette_app = ws_app("ws://0.0.0.0:8000/ws")
+
+    # Run the server using SSE transport
+    starlette_app = sse_app("sse://0.0.0.0:8000/sse")
     config = uvicorn.Config(app=starlette_app, host="0.0.0.0", port=8000)
 
     uvi_server = uvicorn.Server(config)
