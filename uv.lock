@@ -15,6 +15,7 @@ members = [
     "mcp-client",
     "mcp-server-demo",
     "mcp-server-git",
+    "mcp-server-github-demo",
     "mcp-server-sqlite",
     "mcp-simple-auth",
     "mcp-simple-prompt",
@@ -1579,6 +1580,17 @@ dev = [
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "ruff", specifier = ">=0.7.3" },
 ]
+
+[[package]]
+name = "mcp-server-github-demo"
+version = "0.1.0"
+source = { virtual = "demo/server-github-demo" }
+dependencies = [
+    { name = "mcp", extra = ["ws"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mcp", extras = ["ws"], editable = "." }]
 
 [[package]]
 name = "mcp-server-sqlite"
