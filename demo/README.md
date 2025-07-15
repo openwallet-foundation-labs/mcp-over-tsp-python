@@ -90,4 +90,4 @@ uv run test-resource.py
 
 The `fastagent.config.yaml` config file also contains an example **MCP root**. Using the demo server's `show_roots` tool you can see that the root configuration is shared with the server. This tool may return an error if no roots are configured. MCP roots don't automatically share any data or provide any security guarantees; they only provide a way to share information with the server about what roots the server may use. How these roots are used in practice depends entirely on the server.
 
-Fast-agent also supports **MCP prompts** (with the `/prompts` command in the interactive session) and **MCP sampling** (see the `sampling_demo` tool in our demo server).
+Fast-agent also supports **MCP prompts** with the `/prompts` command in the interactive session, and it supports **MCP sampling** and **eliciting** (see the `favorite_animal_guesser` tool in our demo server).
