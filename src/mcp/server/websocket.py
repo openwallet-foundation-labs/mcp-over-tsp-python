@@ -9,12 +9,13 @@ from starlette.websockets import WebSocket
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
+from mcp.shared.transport_hook import TransportHook
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def websocket_server(scope: Scope, receive: Receive, send: Send):
+async def websocket_server(scope: Scope, receive: Receive, send: Send, transport: TransportHook):
     """
     WebSocket server transport for MCP. This is an ASGI application, suitable to be
     used with a framework like Starlette and a server like Hypercorn.
@@ -37,7 +38,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
             async with read_stream_writer:
                 async for msg in websocket.iter_text():
                     try:
-                        client_message = types.JSONRPCMessage.model_validate_json(msg)
+                        client_message = types.JSONRPCMessage.model_validate_json(transport.open_message(msg))
                     except ValidationError as exc:
                         await read_stream_writer.send(exc)
                         continue
@@ -52,7 +53,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
                     obj = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
-                    await websocket.send_text(obj)
+                    await websocket.send_text(transport.seal_message(obj))
         except anyio.ClosedResourceError:
             await websocket.close()
 

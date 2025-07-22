@@ -48,6 +48,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
+from mcp.shared.transport_hook import TransportManager
 from mcp.types import (
     AnyFunction,
     ContentBlock,
@@ -138,6 +139,7 @@ class FastMCP:
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
+        transport_manager: TransportManager | None = None,
         *,
         tools: list[Tool] | None = None,
         **settings: Any,
@@ -152,6 +154,8 @@ class FastMCP:
         self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
         self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
+        self._transport_manager = transport_manager or TransportManager()
+
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:
@@ -709,6 +713,7 @@ class FastMCP:
         sse = SseServerTransport(
             normalized_message_endpoint,
             security_settings=self.settings.transport_security,
+            transport_manager=self._transport_manager,
         )
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):
@@ -838,6 +843,7 @@ class FastMCP:
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
                 security_settings=self.settings.transport_security,
+                transport_manager=self._transport_manager,
             )
 
         # Create the ASGI handler
