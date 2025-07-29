@@ -35,8 +35,9 @@ ANTHROPIC_API_KEY=sk-ant-api03-put-your-private-key-here
 
 Then, run the demo TMCP client in the `client` directory with:
 
-```
-uv run client.py did:web:did.teaspoon.world:the:servers:did:here
+```bash
+# Replace <server-did> with the DID of the target server
+uv run client.py <server-did>
 ```
 
 It should list the available MCP tools from the demo MCP server. You should be able to enter a query to prompt it to use these tools.
