@@ -1,0 +1,10 @@
+[project]
+name = "mcp-client"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["anthropic>=0.49.0", "mcp[ws]", "python-dotenv>=1.1.0", "tmcp"]
+
+[tool.uv.sources]
+tmcp = { workspace = true }
