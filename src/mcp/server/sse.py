@@ -57,6 +57,7 @@ from mcp.server.transport_security import (
     TransportSecuritySettings,
 )
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.transport_hook import TransportManager
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,12 @@ class SseServerTransport:
     _read_stream_writers: dict[UUID, MemoryObjectSendStream[SessionMessage | Exception]]
     _security: TransportSecurityMiddleware
 
-    def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        security_settings: TransportSecuritySettings | None = None,
+        transport_manager: TransportManager | None = None,
+    ) -> None:
         """
         Creates a new SSE server transport, which will direct the client to POST
         messages to the relative or absolute URL given.
@@ -85,12 +91,14 @@ class SseServerTransport:
         Args:
             endpoint: The relative or absolute URL for POST messages.
             security_settings: Optional security settings for DNS rebinding protection.
+            transport_manager: Optional custom transport manager
         """
 
         super().__init__()
         self._endpoint = endpoint
         self._read_stream_writers = {}
         self._security = TransportSecurityMiddleware(security_settings)
+        self._transport = transport_manager or TransportManager()
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
@@ -137,10 +145,14 @@ class SseServerTransport:
 
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, Any]](0)
 
+        transport_hook = self._transport.get_server_hook(Request(scope, receive))
+
         async def sse_writer():
             logger.debug("Starting SSE writer")
             async with sse_stream_writer, write_stream_reader:
-                await sse_stream_writer.send({"event": "endpoint", "data": client_post_uri_data})
+                await sse_stream_writer.send(
+                    {"event": "endpoint", "data": transport_hook.seal_message(client_post_uri_data)}
+                )
                 logger.debug(f"Sent endpoint event: {client_post_uri_data}")
 
                 async for session_message in write_stream_reader:
@@ -148,7 +160,9 @@ class SseServerTransport:
                     await sse_stream_writer.send(
                         {
                             "event": "message",
-                            "data": session_message.message.model_dump_json(by_alias=True, exclude_none=True),
+                            "data": transport_hook.seal_message(
+                                session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                            ),
                         }
                     )
 
@@ -203,10 +217,11 @@ class SseServerTransport:
             return await response(scope, receive, send)
 
         body = await request.body()
+        transport = self._transport.get_server_hook(Request(scope, receive))
         logger.debug(f"Received JSON: {body}")
 
         try:
-            message = types.JSONRPCMessage.model_validate_json(body)
+            message = types.JSONRPCMessage.model_validate_json(transport.open_message(body.decode()))
             logger.debug(f"Validated client message: {message}")
         except ValidationError as err:
             logger.error(f"Failed to parse message: {err}")
