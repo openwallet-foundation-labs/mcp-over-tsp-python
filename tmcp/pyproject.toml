@@ -1,0 +1,46 @@
+[project]
+name = "tmcp"
+version = "0.1.0"
+description = "MCP over TSP"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["tsp-python", "did-webvh", "mcp"]
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tmcp"]
+
+[tool.pyright]
+include = ["src/tmcp", "demo/*"]
+venvPath = "../"
+venv = ".venv"
+strict = ["src/tmcp/**/*.py"]
+
+[tool.ruff.lint]
+select = ["C4", "E", "F", "I", "PERF", "UP"]
+ignore = ["PERF203"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["README.md"]
+
+[tool.uv.workspace]
+members = ["demo/*"]
+
+[tool.uv.sources]
+tmcp = { workspace = true }
+tsp-python = { git = "https://github.com/openwallet-foundation-labs/tsp", subdirectory = "tsp_python", rev = "5850fd9df3240fd462da2d6c51705e8bfeaa106f" }
+did-webvh = { git = "https://github.com/decentralized-identity/didwebvh-py.git" }
+mcp = { path = "../" }
