@@ -1,0 +1,10 @@
+[project]
+name = "mcp-server-github-demo"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["mcp", "tmcp"]
+
+[tool.uv.sources]
+tmcp = { workspace = true }

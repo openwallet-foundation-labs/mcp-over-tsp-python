@@ -1,0 +1,9 @@
+[submodule "demo/server-duckduckgo"]
+	path = tmcp/demo/server-duckduckgo
+	url = https://github.com/openwallet-foundation-labs/duckduckgo-mcp-server
+[submodule "demo/client-fast-agent"]
+	path = tmcp/demo/client-fast-agent
+	url = https://github.com/openwallet-foundation-labs/fast-agent
+[submodule "demo/server-gmail"]
+	path = tmcp/demo/server-gmail
+	url = https://github.com/openwallet-foundation-labs/gmail-mcp-server
