@@ -20,6 +20,7 @@ from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
+from mcp.shared.transport_hook import TransportHook
 from mcp.types import (
     ErrorData,
     InitializeResult,
@@ -76,11 +77,12 @@ class StreamableHTTPTransport:
 
     def __init__(
         self,
-        url: str,
+        url_or_id: str,
         headers: dict[str, str] | None = None,
         timeout: float | timedelta = 30,
         sse_read_timeout: float | timedelta = 60 * 5,
         auth: httpx.Auth | None = None,
+        transport_hook: TransportHook | None = None,
     ) -> None:
         """Initialize the StreamableHTTP transport.
 
@@ -91,7 +93,6 @@ class StreamableHTTPTransport:
             sse_read_timeout: Timeout for SSE read operations.
             auth: Optional HTTPX authentication handler.
         """
-        self.url = url
         self.headers = headers or {}
         self.timeout = timeout.total_seconds() if isinstance(timeout, timedelta) else timeout
         self.sse_read_timeout = (
@@ -105,6 +106,9 @@ class StreamableHTTPTransport:
             CONTENT_TYPE: JSON,
             **self.headers,
         }
+
+        self.transport = transport_hook or TransportHook(url_or_id)
+        self.url = self.transport.get_endpoint()
 
     def _prepare_request_headers(self, base_headers: dict[str, str]) -> dict[str, str]:
         """Update headers with session ID and protocol version if available."""
@@ -159,7 +163,7 @@ class StreamableHTTPTransport:
         """Handle an SSE event, returning True if the response is complete."""
         if sse.event == "message":
             try:
-                message = JSONRPCMessage.model_validate_json(sse.data)
+                message = JSONRPCMessage.model_validate_json(self.transport.open_message(sse.data))
                 logger.debug(f"SSE message: {message}")
 
                 # Extract protocol version from initialization response
@@ -260,7 +264,7 @@ class StreamableHTTPTransport:
         async with ctx.client.stream(
             "POST",
             self.url,
-            json=message.model_dump(by_alias=True, mode="json", exclude_none=True),
+            content=self.transport.seal_message(message.model_dump_json(by_alias=True, exclude_none=True)),
             headers=headers,
         ) as response:
             if response.status_code == 202:
@@ -302,7 +306,7 @@ class StreamableHTTPTransport:
         """Handle JSON response from the server."""
         try:
             content = await response.aread()
-            message = JSONRPCMessage.model_validate_json(content)
+            message = JSONRPCMessage.model_validate_json(self.transport.open_message(content.decode()))
 
             # Extract protocol version from initialization response
             if is_initialization:
@@ -443,13 +447,14 @@ class StreamableHTTPTransport:
 
 @asynccontextmanager
 async def streamablehttp_client(
-    url: str,
+    url_or_id: str,
     headers: dict[str, str] | None = None,
     timeout: float | timedelta = 30,
     sse_read_timeout: float | timedelta = 60 * 5,
     terminate_on_close: bool = True,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
+    transport_hook: TransportHook | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -470,14 +475,14 @@ async def streamablehttp_client(
             - write_stream: Stream for sending messages to the server
             - get_session_id_callback: Function to retrieve the current session ID
     """
-    transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout, auth)
+    transport = StreamableHTTPTransport(url_or_id, headers, timeout, sse_read_timeout, auth, transport_hook)
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
     async with anyio.create_task_group() as tg:
         try:
-            logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
+            logger.debug(f"Connecting to StreamableHTTP endpoint: {url_or_id}")
 
             async with httpx_client_factory(
                 headers=transport.request_headers,

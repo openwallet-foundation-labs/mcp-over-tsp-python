@@ -9,6 +9,7 @@ import pytest
 import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
+from starlette.requests import Request
 from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket
 
@@ -17,6 +18,7 @@ from mcp.client.websocket import websocket_client
 from mcp.server import Server
 from mcp.server.websocket import websocket_server
 from mcp.shared.exceptions import McpError
+from mcp.shared.transport_hook import TransportManager
 from mcp.types import (
     EmptyResult,
     ErrorData,
@@ -77,9 +79,11 @@ class ServerTest(Server):
 def make_server_app() -> Starlette:
     """Create test Starlette app with WebSocket transport"""
     server = ServerTest()
+    transport_manager = TransportManager()
 
     async def handle_ws(websocket: WebSocket):
-        async with websocket_server(websocket.scope, websocket.receive, websocket.send) as streams:
+        transport = transport_manager.get_server_hook(Request(websocket.scope, websocket.receive, websocket.send))
+        async with websocket_server(websocket.scope, websocket.receive, websocket.send, transport) as streams:
             await server.run(streams[0], streams[1], server.create_initialization_options())
 
     app = Starlette(
