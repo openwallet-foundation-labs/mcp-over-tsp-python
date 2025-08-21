@@ -29,6 +29,7 @@ from mcp.server.transport_security import (
     TransportSecuritySettings,
 )
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.transport_hook import TransportHook
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     DEFAULT_NEGOTIATED_VERSION,
@@ -136,6 +137,7 @@ class StreamableHTTPServerTransport:
 
     def __init__(
         self,
+        transport_hook: TransportHook,
         mcp_session_id: str | None,
         is_json_response_enabled: bool = False,
         event_store: EventStore | None = None,
@@ -164,6 +166,7 @@ class StreamableHTTPServerTransport:
         self.is_json_response_enabled = is_json_response_enabled
         self._event_store = event_store
         self._security = TransportSecurityMiddleware(security_settings)
+        self._transport_hook = transport_hook
         self._request_streams: dict[
             RequestId,
             tuple[
@@ -204,7 +207,7 @@ class StreamableHTTPServerTransport:
         )
 
         return Response(
-            error_response.model_dump_json(by_alias=True, exclude_none=True),
+            self._transport_hook.seal_message(error_response.model_dump_json(by_alias=True, exclude_none=True)),
             status_code=status_code,
             headers=response_headers,
         )
@@ -224,7 +227,9 @@ class StreamableHTTPServerTransport:
             response_headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
         return Response(
-            response_message.model_dump_json(by_alias=True, exclude_none=True) if response_message else None,
+            self._transport_hook.seal_message(response_message.model_dump_json(by_alias=True, exclude_none=True))
+            if response_message
+            else None,
             status_code=status_code,
             headers=response_headers,
         )
@@ -237,7 +242,9 @@ class StreamableHTTPServerTransport:
         """Create event data dictionary from an EventMessage."""
         event_data = {
             "event": "message",
-            "data": event_message.message.model_dump_json(by_alias=True, exclude_none=True),
+            "data": self._transport_hook.seal_message(
+                event_message.message.model_dump_json(by_alias=True, exclude_none=True)
+            ),
         }
 
         # If an event ID was provided, include it
@@ -334,6 +341,7 @@ class StreamableHTTPServerTransport:
             # Parse the body - only read it once
             body = await request.body()
 
+            body = self._transport_hook.open_message(body.decode())
             try:
                 raw_message = json.loads(body)
             except json.JSONDecodeError as e:

@@ -12,6 +12,7 @@ from httpx_sse import aconnect_sse
 import mcp.types as types
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
+from mcp.shared.transport_hook import TransportHook
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +23,13 @@ def remove_request_params(url: str) -> str:
 
 @asynccontextmanager
 async def sse_client(
-    url: str,
+    url_or_id: str,
     headers: dict[str, Any] | None = None,
     timeout: float = 5,
     sse_read_timeout: float = 60 * 5,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
+    transport_hook: TransportHook | None = None,
 ):
     """
     Client transport for SSE.
@@ -36,11 +38,12 @@ async def sse_client(
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
 
     Args:
-        url: The SSE endpoint URL.
+        url_or_id: The SSE endpoint URL, or an ID that can be used to get this URL from the transport hook.
         headers: Optional headers to include in requests.
         timeout: HTTP timeout for regular operations.
         sse_read_timeout: Timeout for SSE read operations.
         auth: Optional HTTPX authentication handler.
+        transport_hook: Optional custom transport hook.
     """
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
@@ -50,6 +53,9 @@ async def sse_client(
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+
+    transport = transport_hook or TransportHook(url_or_id)
+    url = transport.get_endpoint()
 
     async with anyio.create_task_group() as tg:
         try:
@@ -71,9 +77,11 @@ async def sse_client(
                         try:
                             async for sse in event_source.aiter_sse():
                                 logger.debug(f"Received SSE event: {sse.event}")
+                                data = transport.open_message(sse.data)
+
                                 match sse.event:
                                     case "endpoint":
-                                        endpoint_url = urljoin(url, sse.data)
+                                        endpoint_url = urljoin(url, data)
                                         logger.debug(f"Received endpoint URL: {endpoint_url}")
 
                                         url_parsed = urlparse(url)
@@ -92,9 +100,7 @@ async def sse_client(
 
                                     case "message":
                                         try:
-                                            message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
-                                                sse.data
-                                            )
+                                            message = types.JSONRPCMessage.model_validate_json(data)
                                             logger.debug(f"Received server message: {message}")
                                         except Exception as exc:
                                             logger.exception("Error parsing server message")
@@ -118,10 +124,12 @@ async def sse_client(
                                     logger.debug(f"Sending client message: {session_message}")
                                     response = await client.post(
                                         endpoint_url,
-                                        json=session_message.message.model_dump(
-                                            by_alias=True,
-                                            mode="json",
-                                            exclude_none=True,
+                                        json=transport.seal_message(
+                                            session_message.message.model_dump(
+                                                by_alias=True,
+                                                mode="json",
+                                                exclude_none=True,
+                                            )
                                         ),
                                     )
                                     response.raise_for_status()
