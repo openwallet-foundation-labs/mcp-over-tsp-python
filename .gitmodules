@@ -7,3 +7,6 @@
 [submodule "demo/server-gmail"]
 	path = tmcp/demo/server-gmail
 	url = https://github.com/openwallet-foundation-labs/gmail-mcp-server
+[submodule "tmcp/demo/decentralized-authentic-time-server"]
+	path = tmcp/demo/decentralized-authentic-time-server
+	url = https://github.com/bakayu/mcp-simple-timeserver.git
