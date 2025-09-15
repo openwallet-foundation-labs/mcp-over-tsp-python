@@ -14,6 +14,7 @@ members = [
     "mcp-client",
     "mcp-server-demo",
     "mcp-server-github-demo",
+    "mcp-simple-timeserver",
     "tmcp",
 ]
 
@@ -1242,6 +1243,25 @@ requires-dist = [
 ]
 
 [[package]]
+name = "mcp-simple-timeserver"
+version = "1.1.2"
+source = { editable = "demo/decentralized-authentic-time-server" }
+dependencies = [
+    { name = "mcp", extra = ["ws"] },
+    { name = "ntplib" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
+    { name = "tmcp" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mcp", extras = ["ws"], directory = "../" },
+    { name = "ntplib" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
+    { name = "tmcp", editable = "." },
+]
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1346,6 +1366,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/43/16/fc88b08840de0e0a72a2f9d8c6bae36be573e475a6326ae854bcc549fc45/nodeenv-1.9.1.tar.gz", hash = "sha256:6ec12890a2dab7946721edbfbcd91f3319c6ccc9aec47be7c7e6b7011ee6645f", size = 47437, upload-time = "2024-06-04T18:44:11.171Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d2/1d/1b658dbd2b9fa9c4c9f32accbfc0205d532c8c6194dc0f2a4c0428e7128a/nodeenv-1.9.1-py2.py3-none-any.whl", hash = "sha256:ba11c9782d29c27c70ffbdda2d7415098754709be8a7056d79a737cd901155c9", size = 22314, upload-time = "2024-06-04T18:44:08.352Z" },
+]
+
+[[package]]
+name = "ntplib"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/14/6b018fb602602d9f6cc7485cbad7c1be3a85d25cea18c233854f05284aed/ntplib-0.4.0.tar.gz", hash = "sha256:899d8fb5f8c2555213aea95efca02934c7343df6ace9d7628a5176b176906267", size = 7135, upload-time = "2021-05-28T19:08:54.394Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/58/8c/41da70f6feaca807357206a376b6de2001b439c7f78f53473a914a6dbd1e/ntplib-0.4.0-py2.py3-none-any.whl", hash = "sha256:8d27375329ed7ff38755f7b6d4658b28edc147cadf40338a63a0da8133469d60", size = 6849, upload-time = "2021-05-28T19:08:53.323Z" },
 ]
 
 [[package]]
